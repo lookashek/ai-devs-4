@@ -60,6 +60,10 @@ async function checkHubApi(): Promise<{ status: ServiceStatus; latency: number }
   }
 }
 
+/**
+ * Health check pane — embedded inside MainLayout via the /health route.
+ * Renders service status cards without a full-page wrapper.
+ */
 export function HealthCheck(): JSX.Element {
   const [services, setServices] = useState<Service[]>(SERVICES_INITIAL);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
@@ -67,18 +71,15 @@ export function HealthCheck(): JSX.Element {
   const runChecks = async (): Promise<void> => {
     setServices(SERVICES_INITIAL);
 
-    // Frontend is always online if this renders
     setServices(prev =>
       prev.map(s => (s.name === 'Frontend' ? { ...s, status: 'online', latency: 0 } : s)),
     );
 
-    // Hub API check
     const hub = await checkHubApi();
     setServices(prev =>
       prev.map(s => (s.name === 'Hub API' ? { ...s, ...hub } : s)),
     );
 
-    // OpenAI and Anthropic — mark as unconfigured until keys are verified server-side
     setServices(prev =>
       prev.map(s =>
         s.name === 'OpenAI' || s.name === 'Anthropic'
@@ -99,22 +100,25 @@ export function HealthCheck(): JSX.Element {
   const overallStatus: ServiceStatus = anyOffline ? 'offline' : allOnline ? 'online' : 'pending';
 
   return (
-    <div className={theme.page}>
-      <div className={theme.container}>
-        {/* Header */}
-        <div className="mb-8">
-          <p className={`${theme.label} mb-2`}>system status</p>
-          <h1 className={theme.heading1}>AI Devs 4</h1>
-          <div className="flex items-center gap-2 mt-3">
-            <StatusDot status={overallStatus} />
-            <span className="text-xs font-mono text-cyber-muted">
-              {overallStatus === 'online' ? 'All systems operational'
-                : overallStatus === 'offline' ? 'Degraded performance'
+    <>
+      {/* Pane header */}
+      <div className={theme.paneHeader}>
+        <p className={theme.label}>[SYS]</p>
+        <h2 className={theme.heading2}>Health Check</h2>
+        <div className="flex items-center gap-2 mt-1">
+          <StatusDot status={overallStatus} />
+          <span className="text-xs font-mono text-cyber-muted">
+            {overallStatus === 'online'
+              ? 'All systems operational'
+              : overallStatus === 'offline'
+                ? 'Degraded performance'
                 : 'Running diagnostics...'}
-            </span>
-          </div>
+          </span>
         </div>
+      </div>
 
+      {/* Pane body */}
+      <div className={theme.paneScrollable}>
         {/* Services card */}
         <div className={theme.cardGlow}>
           <div className="flex items-center justify-between mb-4">
@@ -134,9 +138,7 @@ export function HealthCheck(): JSX.Element {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
           <div className={theme.card}>
             <p className={`${theme.label} mb-2`}>environment</p>
-            <p className="font-mono text-cyber-cyan text-sm">
-              {import.meta.env.MODE}
-            </p>
+            <p className="font-mono text-cyber-cyan text-sm">{import.meta.env.MODE}</p>
           </div>
           <div className={theme.card}>
             <p className={`${theme.label} mb-2`}>version</p>
@@ -151,6 +153,6 @@ export function HealthCheck(): JSX.Element {
           </button>
         </div>
       </div>
-    </div>
+    </>
   );
 }

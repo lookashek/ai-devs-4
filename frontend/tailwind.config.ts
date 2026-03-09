@@ -20,6 +20,7 @@ const config: Config = {
           text: '#e2e8f0',
           muted: '#64748b',
           subtle: '#334155',
+          yellow: '#f59e0b',
         },
       },
       fontFamily: {
