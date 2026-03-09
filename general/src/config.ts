@@ -1,5 +1,11 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// Resolve .env from monorepo root regardless of the process CWD (general/src/ → ../../)
+dotenv.config({ path: resolve(__dirname, '../../.env') });
 
 const ConfigSchema = z.object({
   AIDEVS_API_KEY: z.string().min(1, 'AIDEVS_API_KEY is required'),

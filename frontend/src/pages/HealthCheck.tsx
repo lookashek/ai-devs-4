@@ -53,8 +53,9 @@ function ServiceRow({ service }: { service: Service }): JSX.Element {
 async function checkHubApi(): Promise<{ status: ServiceStatus; latency: number }> {
   const start = Date.now();
   try {
-    const res = await fetch('https://hub.ag3nts.org/', { signal: AbortSignal.timeout(5000) });
-    return { status: res.ok || res.status < 500 ? 'online' : 'offline', latency: Date.now() - start };
+    const res = await fetch('/api/hub/health', { signal: AbortSignal.timeout(5000) });
+    const data = await res.json() as { status: ServiceStatus; latency: number };
+    return data;
   } catch {
     return { status: 'offline', latency: Date.now() - start };
   }
