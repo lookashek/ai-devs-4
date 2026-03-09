@@ -8,8 +8,20 @@ This monorepo contains solutions for the **AI Devs 4** course — a 5-week cohor
 
 ```
 /
+├── .ai/              # Agent instruction files (lessons.md, conventions.md)
 ├── general/          # Shared, reusable modules (LLM clients, Hub API, utilities)
+│   ├── src/          # Source files
 │   └── README.md     # Source of truth — ALWAYS read before implementing anything new
+├── frontend/         # Shared React + Vite + Tailwind UI (health check + lesson template)
+│   ├── src/
+│   │   ├── pages/    # Page components
+│   │   ├── styles/
+│   │   │   ├── theme.ts    # Centralized Tailwind class tokens — USE THIS, not ad-hoc classes
+│   │   │   └── index.css   # Global styles + Tailwind directives
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   ├── tailwind.config.ts  # Custom cyber color palette
+│   └── vite.config.ts
 ├── lessons/          # One directory per lesson solution
 │   ├── S01E01/
 │   │   └── README.md # Task description, approach, and solution notes
@@ -18,6 +30,7 @@ This monorepo contains solutions for the **AI Devs 4** course — a 5-week cohor
 ├── PROD.md           # Project guidelines — always include in agent context
 ├── CLAUDE.md         # This file
 ├── .env              # API keys (never committed)
+├── .env.example      # Template for required env vars
 └── package.json      # npm workspaces monorepo root
 ```
 
@@ -74,11 +87,18 @@ Access through a validated config module — **never use raw `process.env` scatt
 2. Update `general/README.md` with: description, exports, usage example
 3. Use from any lesson via the workspace import
 
+### Running the Frontend
+
+```bash
+npm run dev          # starts Vite dev server at http://localhost:3000
+npm run build        # production build
+```
+
 ### Running Lessons
 
 Individual lessons are standalone — run with:
 ```bash
-npx ts-node lessons/S0XEY/index.ts
+npx ts-node --esm lessons/S0XEY/index.ts
 ```
 
 Or via npm scripts defined in the lesson's `package.json` (if present).
@@ -108,6 +128,48 @@ Or via npm scripts defined in the lesson's `package.json` (if present).
 - State as local as possible; lift only when needed; context sparingly
 - Tailwind utility classes exclusively — no inline styles
 - Stable, unique keys in lists (never array index on dynamic lists)
+
+### Frontend Theme & Styling
+
+The UI uses a **dark futuristic / cyberpunk aesthetic** with a custom `cyber.*` color palette defined in `frontend/tailwind.config.ts`.
+
+**Rule: Never hardcode Tailwind color classes directly in components. Always use tokens from `frontend/src/styles/theme.ts`.**
+
+```typescript
+// WRONG — hardcoded classes scattered in components
+<div className="bg-[#111122] border border-[#1e2040] text-[#e2e8f0]">
+
+// CORRECT — use theme tokens
+import { theme } from '../styles/theme';
+<div className={theme.card}>
+```
+
+#### Cyber Color Palette
+
+| Token | Value | Usage |
+|---|---|---|
+| `cyber-black` | `#08080f` | Page background |
+| `cyber-dark` | `#0d0d1a` | Secondary background |
+| `cyber-card` | `#111122` | Card surfaces |
+| `cyber-border` | `#1e2040` | Borders, dividers |
+| `cyber-cyan` | `#00d4ff` | Primary accent, headings |
+| `cyber-purple` | `#a855f7` | Secondary accent |
+| `cyber-green` | `#00ff9f` | Success, online status |
+| `cyber-red` | `#ff4466` | Error, offline status |
+| `cyber-text` | `#e2e8f0` | Primary text |
+| `cyber-muted` | `#64748b` | Secondary/muted text |
+
+#### Available Theme Tokens (`theme.ts`)
+
+- **Layout:** `theme.page`, `theme.container`
+- **Surfaces:** `theme.card`, `theme.cardGlow`
+- **Typography:** `theme.heading1`, `theme.heading2`, `theme.label`, `theme.mono`
+- **Status:** `theme.statusOnline/Offline/Pending`, `theme.dotOnline/Offline/Pending`
+- **Badges:** `theme.badgeOnline/Offline/Pending`
+- **Buttons:** `theme.btnPrimary`, `theme.btnSecondary`
+- **Misc:** `theme.divider`
+
+When you need a new visual pattern not covered by existing tokens, **add it to `theme.ts` first**, then use it.
 
 ### General Rules
 
@@ -171,3 +233,5 @@ export const config = ConfigSchema.parse(process.env);
 5. **Never commit `.env`** or any file containing API keys.
 6. **Lesson naming is strict**: `S{week}E{episode}` (e.g., `S01E01`, `S02E03`).
 7. When the Hub API returns a flag `{FLG:...}`, that is the successful task completion signal.
+8. **All frontend styling goes through `theme.ts`** — no ad-hoc Tailwind color classes in components.
+9. **Check `.ai/` directory** for task-specific agent instructions before starting any work.
