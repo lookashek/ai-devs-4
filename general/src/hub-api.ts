@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { config } from './config.js';
 
 const HUB_URL = typeof window !== 'undefined'
-  ? '/hub-verify'
+  ? '/api/hub/verify'
   : 'https://hub.ag3nts.org/verify';
 
 const HubResponseSchema = z.object({
