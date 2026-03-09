@@ -18,6 +18,13 @@ Use this guide when implementing a new AI Devs 4 lesson solution.
 
 ---
 
+## Utilities and helper functions that are useful across multiple lessons should be find in `general/README.md`
+Use available tools from this module first, if you find that something from lessons can be abstracted into a reusable utility, implement it.
+Before doing this, please ask user, explain briefly what you want to implement and why, and ask for confirmation to proceed. 
+This way we can avoid unnecessary abstractions and keep the codebase clean and maintainable.
+
+When you create a new module in `general/`, also update `general/README.md` with:
+
 ## Directory Structure Per Lesson
 
 ```
