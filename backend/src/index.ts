@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import { config, openai } from '@ai-devs-4/general';
+import { s01e01Router } from './lessons/s01e01.js';
 
 const app = express();
 const PORT = 3001;
@@ -67,6 +68,8 @@ app.post('/api/hub/verify', async (req, res): Promise<void> => {
   const data: unknown = await upstream.json();
   res.status(upstream.status).json(data);
 });
+
+app.use('/api/lessons/s01e01', s01e01Router);
 
 app.listen(PORT, () => {
   console.log(`[backend] Server running at http://localhost:${PORT}`);
