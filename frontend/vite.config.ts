@@ -10,6 +10,11 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/hub-verify': {
+        target: 'https://hub.ag3nts.org',
+        changeOrigin: true,
+        rewrite: () => '/verify',
+      },
     },
   },
 });
