@@ -10,6 +10,7 @@ dotenv.config({ path: resolve(__dirname, '../../.env') });
 const ConfigSchema = z.object({
   AIDEVS_API_KEY: z.string().min(1, 'AIDEVS_API_KEY is required'),
   OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),
+  OPENAI_MODEL: z.string().default('gpt-4o'),
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });

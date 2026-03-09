@@ -41,6 +41,36 @@ const result = await submitAnswer({
 
 ---
 
+### `openai-client.ts`
+
+OpenAI client pre-configured from env vars. Model is injected via `OPENAI_MODEL` (default: `gpt-4o`).
+
+**Exports:** `openai` (raw `OpenAI` instance), `chat(messages, options?)`, `ask(userMessage, options?)`, `ChatMessage`, `ChatOptions`
+
+**Usage:**
+```typescript
+import { ask, chat } from '@ai-devs-4/general';
+
+// Simple one-shot question
+const answer = await ask('What is 2+2?', { systemPrompt: 'You are a math tutor.' });
+
+// Full conversation
+const reply = await chat(
+  [{ role: 'user', content: 'Translate "hello" to Polish.' }],
+  { model: 'gpt-4o-mini', temperature: 0 },
+);
+```
+
+**ChatOptions:**
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | `string` | `OPENAI_MODEL` env var | Override the model per-call |
+| `temperature` | `number` | `0.2` | Sampling temperature |
+| `maxTokens` | `number` | — | Max tokens to generate |
+| `systemPrompt` | `string` | — | Prepended as a system message |
+
+---
+
 ## Adding a New Module
 
 1. Create `src/<module-name>.ts`
