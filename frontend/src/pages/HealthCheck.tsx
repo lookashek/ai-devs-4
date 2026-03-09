@@ -50,10 +50,10 @@ function ServiceRow({ service }: { service: Service }): JSX.Element {
   );
 }
 
-async function checkHubApi(): Promise<{ status: ServiceStatus; latency: number }> {
+async function checkService(url: string): Promise<{ status: ServiceStatus; latency: number }> {
   const start = Date.now();
   try {
-    const res = await fetch('/api/hub/health', { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const data = await res.json() as { status: ServiceStatus; latency: number };
     return data;
   } catch {
@@ -76,17 +76,19 @@ export function HealthCheck(): JSX.Element {
       prev.map(s => (s.name === 'Frontend' ? { ...s, status: 'online', latency: 0 } : s)),
     );
 
-    const hub = await checkHubApi();
-    setServices(prev =>
-      prev.map(s => (s.name === 'Hub API' ? { ...s, ...hub } : s)),
-    );
+    const [hub, openai, anthropic] = await Promise.all([
+      checkService('/api/hub/health'),
+      checkService('/api/openai/health'),
+      checkService('/api/anthropic/health'),
+    ]);
 
     setServices(prev =>
-      prev.map(s =>
-        s.name === 'OpenAI' || s.name === 'Anthropic'
-          ? { ...s, status: 'pending' }
-          : s,
-      ),
+      prev.map(s => {
+        if (s.name === 'Hub API') return { ...s, ...hub };
+        if (s.name === 'OpenAI') return { ...s, ...openai };
+        if (s.name === 'Anthropic') return { ...s, ...anthropic };
+        return s;
+      }),
     );
 
     setCheckedAt(new Date());

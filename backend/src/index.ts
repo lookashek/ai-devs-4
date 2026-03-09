@@ -1,6 +1,6 @@
 import cors from 'cors';
 import express from 'express';
-import { config } from '@ai-devs-4/general';
+import { config, openai } from '@ai-devs-4/general';
 
 const app = express();
 const PORT = 3001;
@@ -14,6 +14,33 @@ app.get('/api/hub/health', async (_req, res): Promise<void> => {
   try {
     const upstream = await fetch(`${HUB_URL}/`, { signal: AbortSignal.timeout(5000) });
     const status = upstream.ok || upstream.status < 500 ? 'online' : 'offline';
+    res.json({ status, latency: Date.now() - start });
+  } catch {
+    res.json({ status: 'offline', latency: Date.now() - start });
+  }
+});
+
+app.get('/api/openai/health', async (_req, res): Promise<void> => {
+  const start = Date.now();
+  try {
+    await openai.models.list();
+    res.json({ status: 'online', latency: Date.now() - start });
+  } catch {
+    res.json({ status: 'offline', latency: Date.now() - start });
+  }
+});
+
+app.get('/api/anthropic/health', async (_req, res): Promise<void> => {
+  const start = Date.now();
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/models', {
+      headers: {
+        'x-api-key': config.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    const status = response.ok ? 'online' : 'offline';
     res.json({ status, latency: Date.now() - start });
   } catch {
     res.json({ status: 'offline', latency: Date.now() - start });
