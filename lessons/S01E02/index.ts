@@ -45,6 +45,10 @@ export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+export function stripJsonFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+}
+
 export async function fetchLocationsJson(): Promise<unknown> {
   const url = `${HUB_URL}/data/${config.AIDEVS_API_KEY}/findhim_locations.json`;
   console.log(`[s01e02] Fetching power plant locations from ${url}`);
@@ -91,7 +95,7 @@ Return ONLY valid JSON array, no explanation.`;
 
     const parsed = z
       .array(z.object({ name: z.string(), lat: z.number(), lng: z.number() }))
-      .parse(JSON.parse(response));
+      .parse(JSON.parse(stripJsonFences(response)));
     return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
   }
 
@@ -125,7 +129,7 @@ Return ONLY valid JSON array, no explanation.`;
 
     const parsed = z
       .array(z.object({ name: z.string(), lat: z.number(), lng: z.number() }))
-      .parse(JSON.parse(response));
+      .parse(JSON.parse(stripJsonFences(response)));
     return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
   }
 
@@ -154,7 +158,7 @@ Return ONLY valid JSON array, no explanation.`;
 
     const parsed = z
       .array(z.object({ name: z.string(), lat: z.number(), lng: z.number() }))
-      .parse(JSON.parse(response));
+      .parse(JSON.parse(stripJsonFences(response)));
     return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
   }
 
