@@ -71,6 +71,30 @@ const reply = await chat(
 
 ---
 
+### `data-store.ts`
+
+Simple key-value store backed by SQLite (`data/store.db` at project root). Used to persist data between lesson runs (e.g., S01E01 saves suspects, S01E02 reads them).
+
+Uses `better-sqlite3` (synchronous API — no async needed).
+
+**Exports:** `saveToStore(key, value)`, `getFromStore<T>(key)`, `deleteFromStore(key)`
+
+**Usage:**
+```typescript
+import { saveToStore, getFromStore, deleteFromStore } from '@ai-devs-4/general';
+
+// Save any JSON-serializable value
+saveToStore('my_key', { name: 'Jan', score: 42 });
+
+// Read it back (returns undefined if missing)
+const data = getFromStore<{ name: string; score: number }>('my_key');
+
+// Delete
+deleteFromStore('my_key');
+```
+
+---
+
 ## Adding a New Module
 
 1. Create `src/<module-name>.ts`

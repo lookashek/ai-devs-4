@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { config, submitAnswer, openai } from '@ai-devs-4/general';
+import { config, submitAnswer, openai, saveToStore } from '@ai-devs-4/general';
 
 const TASK = 'people';
 const BIRTH_YEAR_MIN = 1986;
@@ -220,6 +220,9 @@ async function main(): Promise<void> {
   }
 
   console.log(`[s01e01] ${transportPeople.length} people with '${TARGET_TAG}' tag:`, transportPeople);
+
+  saveToStore('s01e01_suspects', transportPeople);
+  console.log(`[s01e01] Saved ${transportPeople.length} suspects to data store`);
 
   const result = await submitAnswer({ task: TASK, answer: transportPeople });
   console.log('[s01e01] Flag:', result.message);
