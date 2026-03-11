@@ -159,11 +159,26 @@ Return ONLY valid JSON array, no explanation.`;
     const parsed = z
       .array(z.object({ name: z.string(), lat: z.number(), lng: z.number() }))
       .parse(JSON.parse(stripJsonFences(response)));
-    return parsed.map(l => ({
-      name: l.name,
-      code: asPowerPlants.data.power_plants[l.name]?.code,
-      coords: { lat: l.lat, lng: l.lng },
-    }));
+
+    // Build case-insensitive lookup to handle LLM name variations
+    const normalizeKey = (s: string): string =>
+      s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+    const codeByNormalizedName = new Map(
+      Object.entries(asPowerPlants.data.power_plants).map(([city, info]) => [
+        normalizeKey(city),
+        { code: info.code, originalName: city },
+      ]),
+    );
+
+    return parsed.map(l => {
+      const lookup = codeByNormalizedName.get(normalizeKey(l.name));
+      console.log(`[s01e02] Plant lookup: LLM="${l.name}" → code=${lookup?.code ?? 'NOT FOUND'} (originalKey="${lookup?.originalName ?? '?'}")`);
+      return {
+        name: lookup?.originalName ?? l.name,
+        code: lookup?.code,
+        coords: { lat: l.lat, lng: l.lng },
+      };
+    });
   }
 
   throw new Error(`[s01e02] Unable to parse locations JSON — unknown format. Raw data: ${JSON.stringify(locations)}`);
@@ -315,6 +330,7 @@ async function main(): Promise<void> {
   console.log(`[s01e02] Access level: ${accessLevel}`);
 
   // Step 6: Submit answer
+  console.log('[s01e02] Closest plant details:', JSON.stringify(globalMin.plant));
   const answer = {
     name: globalMin.suspect.name,
     surname: globalMin.suspect.surname,
@@ -322,7 +338,7 @@ async function main(): Promise<void> {
     powerPlant: globalMin.plant.code ?? globalMin.plant.name,
   };
 
-  console.log('[s01e02] Submitting answer:', JSON.stringify(answer));
+  console.log('[s01e02] ANSWER PAYLOAD:', JSON.stringify(answer));
   const result = await submitAnswer({ task: TASK, answer });
   console.log('[s01e02] Flag:', result.message);
 

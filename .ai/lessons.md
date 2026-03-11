@@ -287,6 +287,24 @@ import './lessons/S0XEY.js'; // ← add here
 
 ---
 
+## Debugging Checklist
+
+When a lesson fails or returns unexpected Hub API errors, always add logs for:
+
+- **Exact payload sent to Hub API** — log the full answer object right before submission
+- **API responses** — log raw responses from all external APIs (Hub API, lesson-specific endpoints)
+- **Data transformations** — log intermediate results when mapping/transforming external data (e.g. city name → code lookups)
+- **LLM outputs** — log the raw LLM response before parsing, especially when parsing JSON from it
+
+Example pattern:
+```typescript
+console.log('[s0xey] ANSWER PAYLOAD:', JSON.stringify(answer));
+const result = await submitAnswer({ task: TASK, answer });
+console.log('[s0xey] Hub response:', JSON.stringify(result));
+```
+
+---
+
 ## README.md Template
 
 ```markdown
