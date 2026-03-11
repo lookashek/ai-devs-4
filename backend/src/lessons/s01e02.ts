@@ -54,7 +54,7 @@ s01e02Router.post('/run', async (_req, res): Promise<void> => {
     interface BestMatch {
       suspect: Suspect;
       sighting: Coordinate;
-      plant: { name: string; coords: Coordinate };
+      plant: { name: string; code?: string; coords: Coordinate };
       distanceKm: number;
     }
     let globalMin: BestMatch | undefined;
@@ -103,13 +103,15 @@ s01e02Router.post('/run', async (_req, res): Promise<void> => {
     log(`Access level: ${accessLevel}`);
 
     // Step 5: Submit answer
+    log(`Closest plant details: name=${globalMin.plant.name} code=${globalMin.plant.code ?? 'MISSING'}`);
     const answer = {
       name: globalMin.suspect.name,
       surname: globalMin.suspect.surname,
       accessLevel,
-      powerPlant: globalMin.plant.name,
+      powerPlant: globalMin.plant.code ?? globalMin.plant.name,
     };
 
+    log(`ANSWER PAYLOAD: ${JSON.stringify(answer)}`);
     log(`Submitting answer to Hub API (task: ${TASK})...`);
     const hubRes = await fetch(`${HUB_URL}/verify`, {
       method: 'POST',
@@ -117,7 +119,7 @@ s01e02Router.post('/run', async (_req, res): Promise<void> => {
       body: JSON.stringify({ apikey: config.AIDEVS_API_KEY, task: TASK, answer }),
     });
     const hubData = (await hubRes.json()) as { code: number; message: string };
-    log(`Hub API response: ${hubData.message}`, hubData.code === 0 ? 'success' : 'warn');
+    log(`Hub API raw response: ${JSON.stringify(hubData)}`, hubData.code === 0 ? 'success' : 'warn');
 
     saveToStore('s01e02_flag', hubData.message);
 
