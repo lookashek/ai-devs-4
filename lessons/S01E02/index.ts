@@ -25,7 +25,7 @@ export type Coordinate = z.infer<typeof CoordinateSchema>;
 export interface SuspectDistance {
   suspect: Suspect;
   sighting: Coordinate;
-  plant: { name: string; coords: Coordinate };
+  plant: { name: string; code?: string; coords: Coordinate };
   distanceKm: number;
 }
 
@@ -159,7 +159,11 @@ Return ONLY valid JSON array, no explanation.`;
     const parsed = z
       .array(z.object({ name: z.string(), lat: z.number(), lng: z.number() }))
       .parse(JSON.parse(stripJsonFences(response)));
-    return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
+    return parsed.map(l => ({
+      name: l.name,
+      code: asPowerPlants.data.power_plants[l.name]?.code,
+      coords: { lat: l.lat, lng: l.lng },
+    }));
   }
 
   throw new Error(`[s01e02] Unable to parse locations JSON — unknown format. Raw data: ${JSON.stringify(locations)}`);
@@ -315,7 +319,7 @@ async function main(): Promise<void> {
     name: globalMin.suspect.name,
     surname: globalMin.suspect.surname,
     accessLevel,
-    powerPlant: globalMin.plant.name,
+    powerPlant: globalMin.plant.code ?? globalMin.plant.name,
   };
 
   console.log('[s01e02] Submitting answer:', JSON.stringify(answer));
