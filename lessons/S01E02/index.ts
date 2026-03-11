@@ -243,12 +243,12 @@ export async function fetchAccessLevel(
   const data: unknown = await res.json();
   console.log(`[s01e02] Access level response:`, JSON.stringify(data));
 
-  const ResponseSchema = z.object({ accessLevel: z.string() }).or(
+  const ResponseSchema = z.object({ accessLevel: z.union([z.string(), z.number()]) }).or(
     z.object({ message: z.string() }),
   );
   const parsed = ResponseSchema.parse(data);
 
-  if ('accessLevel' in parsed) return parsed.accessLevel;
+  if ('accessLevel' in parsed) return String(parsed.accessLevel);
   return parsed.message;
 }
 
