@@ -187,10 +187,14 @@ export async function fetchSuspectLocations(
   const data: unknown = await res.json();
   console.log(`[s01e02] Location response for ${name} ${surname}:`, JSON.stringify(data));
 
-  // Try to parse response — could be array of {lat, lng} or nested
+  // Try to parse response — could be array of {lat, lng} or {latitude, longitude}
   const DirectArraySchema = z.array(CoordinateSchema);
   const direct = DirectArraySchema.safeParse(data);
   if (direct.success) return direct.data;
+
+  const LatLongSchema = z.array(z.object({ latitude: z.number(), longitude: z.number() }));
+  const latLong = LatLongSchema.safeParse(data);
+  if (latLong.success) return latLong.data.map(l => ({ lat: l.latitude, lng: l.longitude }));
 
   // Try wrapped in a response object
   const WrappedSchema = z.object({ locations: z.array(CoordinateSchema) });
