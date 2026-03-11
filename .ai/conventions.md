@@ -19,6 +19,8 @@ Quick reference for the most important conventions. Full detail in `PROD.md` and
 - Use `.js` extension in imports even for `.ts` files (ESM)
 - Shared code → `/general/src/`; export from `/general/src/index.ts`
 - Env vars → only through `config` from `@ai-devs-4/general`
+- **Backend routers import business logic from lesson packages (`@ai-devs-4/s0xey`) — never duplicate it inline**
+- Lesson `index.ts` exports all core functions/types; `main()` is guarded with `isMain` so the module can be safely imported by the backend without triggering side-effects
 
 ## Logging
 

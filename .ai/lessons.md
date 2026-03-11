@@ -51,13 +51,41 @@ Imports from `@ai-devs-4/general`. Run with:
 npx tsx lessons/S0XEY/index.ts
 ```
 
+**CRITICAL: All business logic must be in exported functions. The `main()` function only orchestrates them.**
+The `isMain` guard ensures imports don't trigger side-effects (the backend imports this module).
+
 ```typescript
+import { fileURLToPath } from 'url';
 import { config, submitAnswer, openai } from '@ai-devs-4/general';
 
-// ... lesson logic ...
+// Export ALL core functions and types — the backend router will import them
+export const TASK = 'task-name';
 
-const result = await submitAnswer({ task: 'task-name', answer: payload });
-console.log('[s0xey] Flag:', result.message);
+export interface MyResult { /* ... */ }
+
+export async function fetchData(): Promise<MyResult[]> {
+  // ... fetch logic ...
+}
+
+export async function processData(data: MyResult[]): Promise<MyResult[]> {
+  // ... processing logic ...
+}
+
+async function main(): Promise<void> {
+  const data = await fetchData();
+  const processed = await processData(data);
+  const result = await submitAnswer({ task: TASK, answer: processed });
+  console.log('[s0xey] Flag:', result.message);
+}
+
+// Guard: only run main() when executed directly, not when imported by backend
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch(err => {
+    console.error('[s0xey] Fatal error:', err);
+    process.exit(1);
+  });
+}
 ```
 
 ## 2. `lessons/S0XEY/package.json`
@@ -68,6 +96,7 @@ console.log('[s0xey] Flag:', result.message);
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./index.ts",
   "scripts": {
     "start": "tsx index.ts"
   },
@@ -82,6 +111,8 @@ console.log('[s0xey] Flag:', result.message);
   }
 }
 ```
+
+> **Note:** `"main": "./index.ts"` is required so the backend can import this package via `@ai-devs-4/s0xey`.
 
 ## 3. `lessons/S0XEY/tsconfig.json`
 
@@ -115,14 +146,28 @@ Do NOT extend the root tsconfig — it excludes the `lessons/` directory.
 ## 4. Backend Router — `backend/src/lessons/s0xey.ts`
 
 Each lesson gets its own Express Router exported as `s0xeyRouter`.
-The router exposes a single `POST /run` endpoint that runs the full lesson
-logic and returns a structured log + optional flag.
+The router exposes a single `POST /run` endpoint.
+
+**CRITICAL: DO NOT duplicate lesson logic here. Import all functions and types from `@ai-devs-4/s0xey`.**
+The backend router is ONLY responsible for: HTTP handling, step logging for the frontend, and error formatting.
+
+Before creating the router, add `@ai-devs-4/s0xey` to `backend/package.json` dependencies:
+```json
+"dependencies": {
+  "@ai-devs-4/s0xey": "*"
+}
+```
 
 ```typescript
 import { Router } from 'express';
-import { config, openai } from '@ai-devs-4/general';
-
-const HUB_URL = 'https://hub.ag3nts.org';
+import { config } from '@ai-devs-4/general';
+// Import ALL business logic from the lesson package — never reimplement it here
+import {
+  TASK,
+  fetchData,
+  processData,
+  type MyResult,
+} from '@ai-devs-4/s0xey';
 
 interface LogEntry {
   message: string;
@@ -144,8 +189,25 @@ s0xeyRouter.post('/run', async (_req, res): Promise<void> => {
   };
 
   try {
-    // ... lesson logic, call log() throughout ...
-    res.json({ steps, flag: '...' } satisfies RunResponse);
+    log('Fetching data...');
+    const data = await fetchData();
+    log(`Fetched ${data.length} records`);
+
+    log('Processing...');
+    const result = await processData(data);
+    log(`Done: ${result.length} results`, 'success');
+
+    // Submit to Hub API
+    log(`Submitting answer (task: ${TASK})...`);
+    const hubRes = await fetch('https://hub.ag3nts.org/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apikey: config.AIDEVS_API_KEY, task: TASK, answer: result }),
+    });
+    const hubData = (await hubRes.json()) as { code: number; message: string };
+    log(`Hub response: ${hubData.message}`, hubData.code === 0 ? 'success' : 'warn');
+
+    res.json({ steps, flag: hubData.message } satisfies RunResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`Error: ${message}`, 'error');
