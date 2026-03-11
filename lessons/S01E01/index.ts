@@ -1,15 +1,16 @@
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { config, submitAnswer, openai, saveToStore } from '@ai-devs-4/general';
 
-const TASK = 'people';
-const BIRTH_YEAR_MIN = 1986;
-const BIRTH_YEAR_MAX = 2006;
-const TARGET_CITY = 'Grudziądz';
-const TARGET_GENDER = 'M';
-const TARGET_TAG = 'transport';
+export const TASK = 'people';
+export const BIRTH_YEAR_MIN = 1986;
+export const BIRTH_YEAR_MAX = 2006;
+export const TARGET_CITY = 'Grudziądz';
+export const TARGET_GENDER = 'M';
+export const TARGET_TAG = 'transport';
 const MODEL = 'gpt-4o-mini';
 
-const AVAILABLE_TAGS = [
+export const AVAILABLE_TAGS = [
   'IT',
   'transport',
   'edukacja',
@@ -19,11 +20,11 @@ const AVAILABLE_TAGS = [
   'praca fizyczna',
 ] as const;
 
-type Tag = (typeof AVAILABLE_TAGS)[number];
+export type Tag = (typeof AVAILABLE_TAGS)[number];
 
 const TagSchema = z.enum(AVAILABLE_TAGS);
 
-const PersonRowSchema = z.object({
+export const PersonRowSchema = z.object({
   name: z.string().min(1),
   surname: z.string().min(1),
   gender: z.string().min(1),
@@ -32,9 +33,9 @@ const PersonRowSchema = z.object({
   job: z.string().min(1),
 });
 
-type PersonRow = z.infer<typeof PersonRowSchema>;
+export type PersonRow = z.infer<typeof PersonRowSchema>;
 
-const TaggingResponseSchema = z.object({
+export const TaggingResponseSchema = z.object({
   results: z.array(
     z.object({
       index: z.number().int(),
@@ -43,7 +44,7 @@ const TaggingResponseSchema = z.object({
   ),
 });
 
-interface PersonAnswer {
+export interface PersonAnswer {
   name: string;
   surname: string;
   gender: string;
@@ -61,7 +62,7 @@ function parseBornYear(raw: string): number {
   return parseInt(raw.substring(0, 4), 10);
 }
 
-async function fetchPeopleCsv(): Promise<PersonRow[]> {
+export async function fetchPeopleCsv(): Promise<PersonRow[]> {
   const url = `https://hub.ag3nts.org/data/${config.AIDEVS_API_KEY}/people.csv`;
   console.log('[s01e01] Fetching CSV from Hub API...');
 
@@ -106,7 +107,7 @@ async function fetchPeopleCsv(): Promise<PersonRow[]> {
   return people;
 }
 
-function filterPeople(people: PersonRow[]): PersonRow[] {
+export function filterPeople(people: PersonRow[]): PersonRow[] {
   const filtered = people.filter(
     p =>
       p.gender === TARGET_GENDER &&
@@ -118,7 +119,7 @@ function filterPeople(people: PersonRow[]): PersonRow[] {
   return filtered;
 }
 
-async function tagProfessions(people: PersonRow[]): Promise<Map<number, Tag[]>> {
+export async function tagProfessions(people: PersonRow[]): Promise<Map<number, Tag[]>> {
   const jobList = people.map((p, i) => `${i}: ${p.job}`).join('\n');
 
   const systemPrompt = `Jesteś ekspertem w klasyfikacji zawodów. Przypisz odpowiednie tagi do każdego zawodu.
@@ -228,7 +229,10 @@ async function main(): Promise<void> {
   console.log('[s01e01] Flag:', result.message);
 }
 
-main().catch(err => {
-  console.error('[s01e01] Fatal error:', err);
-  process.exit(1);
-});
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch(err => {
+    console.error('[s01e01] Fatal error:', err);
+    process.exit(1);
+  });
+}
