@@ -129,6 +129,35 @@ Return ONLY valid JSON array, no explanation.`;
     return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
   }
 
+  // Try as {"power_plants": {"CityName": {"is_active": bool, "power": str, "code": str}, ...}}
+  const PowerPlantsWrapperSchema = z.object({
+    power_plants: z.record(z.string(), z.object({
+      is_active: z.boolean(),
+      power: z.string(),
+      code: z.string(),
+    })),
+  });
+  const asPowerPlants = PowerPlantsWrapperSchema.safeParse(locations);
+  if (asPowerPlants.success) {
+    const cityNames = Object.keys(asPowerPlants.data.power_plants);
+    console.log('[s01e02] power_plants format detected, geocoding cities via LLM:', cityNames);
+    const prompt = `Return a JSON array of objects with "name", "lat", "lng" for these Polish cities (power plant locations). Use approximate GPS coordinates.
+
+Cities: ${JSON.stringify(cityNames)}
+
+Return ONLY valid JSON array, no explanation.`;
+
+    const response = await ask(prompt, {
+      systemPrompt: 'You are a geocoding assistant. Return only valid JSON.',
+      temperature: 0,
+    });
+
+    const parsed = z
+      .array(z.object({ name: z.string(), lat: z.number(), lng: z.number() }))
+      .parse(JSON.parse(response));
+    return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
+  }
+
   throw new Error(`[s01e02] Unable to parse locations JSON — unknown format. Raw data: ${JSON.stringify(locations)}`);
 }
 
