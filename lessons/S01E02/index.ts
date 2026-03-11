@@ -129,7 +129,7 @@ Return ONLY valid JSON array, no explanation.`;
     return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
   }
 
-  throw new Error('[s01e02] Unable to parse locations JSON — unknown format');
+  throw new Error(`[s01e02] Unable to parse locations JSON — unknown format. Raw data: ${JSON.stringify(locations)}`);
 }
 
 export async function fetchSuspectLocations(

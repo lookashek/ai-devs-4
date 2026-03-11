@@ -46,6 +46,7 @@ s01e02Router.post('/run', async (_req, res): Promise<void> => {
     // Step 2: Fetch power plant locations
     log('Fetching power plant locations...');
     const rawLocations = await fetchLocationsJson();
+    log(`Raw locations JSON: ${JSON.stringify(rawLocations)}`);
     const plants = await resolveCoordinates(rawLocations);
     log(`Resolved ${plants.length} power plant locations`);
 
