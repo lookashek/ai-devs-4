@@ -1,11 +1,12 @@
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { config, submitAnswer, getFromStore, saveToStore, ask } from '@ai-devs-4/general';
 
-const TASK = 'findhim';
-const HUB_URL = 'https://hub.ag3nts.org';
-const API_DELAY_MS = 200;
+export const TASK = 'findhim';
+export const HUB_URL = 'https://hub.ag3nts.org';
+export const API_DELAY_MS = 200;
 
-interface Suspect {
+export interface Suspect {
   name: string;
   surname: string;
   born: number;
@@ -14,21 +15,21 @@ interface Suspect {
   tags: string[];
 }
 
-const CoordinateSchema = z.object({
+export const CoordinateSchema = z.object({
   lat: z.number(),
   lng: z.number(),
 });
 
-type Coordinate = z.infer<typeof CoordinateSchema>;
+export type Coordinate = z.infer<typeof CoordinateSchema>;
 
-interface SuspectDistance {
+export interface SuspectDistance {
   suspect: Suspect;
   sighting: Coordinate;
   plant: { name: string; coords: Coordinate };
   distanceKm: number;
 }
 
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -40,11 +41,11 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function delay(ms: number): Promise<void> {
+export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchLocationsJson(): Promise<unknown> {
+export async function fetchLocationsJson(): Promise<unknown> {
   const url = `${HUB_URL}/data/${config.AIDEVS_API_KEY}/findhim_locations.json`;
   console.log(`[s01e02] Fetching power plant locations from ${url}`);
   const res = await fetch(url);
@@ -54,7 +55,7 @@ async function fetchLocationsJson(): Promise<unknown> {
   return data;
 }
 
-async function resolveCoordinates(
+export async function resolveCoordinates(
   locations: unknown,
 ): Promise<Array<{ name: string; coords: Coordinate }>> {
   // Try to parse as array of objects with lat/lng first
@@ -128,10 +129,10 @@ Return ONLY valid JSON array, no explanation.`;
     return parsed.map(l => ({ name: l.name, coords: { lat: l.lat, lng: l.lng } }));
   }
 
-  throw new Error('[s01e02] Unable to parse locations JSON — unknown format');
+  throw new Error(`[s01e02] Unable to parse locations JSON — unknown format. Raw data: ${JSON.stringify(locations)}`);
 }
 
-async function fetchSuspectLocations(
+export async function fetchSuspectLocations(
   name: string,
   surname: string,
 ): Promise<Coordinate[]> {
@@ -185,7 +186,7 @@ async function fetchSuspectLocations(
   return [];
 }
 
-async function fetchAccessLevel(
+export async function fetchAccessLevel(
   name: string,
   surname: string,
   birthYear: number,
@@ -287,7 +288,10 @@ async function main(): Promise<void> {
   saveToStore('s01e02_flag', result.message);
 }
 
-main().catch(err => {
-  console.error('[s01e02] Fatal error:', err);
-  process.exit(1);
-});
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch(err => {
+    console.error('[s01e02] Fatal error:', err);
+    process.exit(1);
+  });
+}
