@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { config, openai } from '@ai-devs-4/general';
+import { config, openai, saveToStore } from '@ai-devs-4/general';
 
 const HUB_URL = 'https://hub.ag3nts.org';
 const TASK = 'people';
@@ -192,6 +192,10 @@ Zwróć JSON z tablicą wyników dla każdego indeksu.`;
       }
     }
     log(`${transportPeople.length} people have the '${TARGET_TAG}' tag`);
+
+    // Save suspects for S01E02
+    saveToStore('s01e01_suspects', transportPeople);
+    log(`Saved ${transportPeople.length} suspects to data store`);
 
     // Step 5: Submit to Hub API
     log(`Submitting answer to Hub API (task: ${TASK})...`);
