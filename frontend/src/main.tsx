@@ -6,6 +6,7 @@ import { App } from './App';
 // Lesson registrations (side-effect imports — order = sidebar order)
 import './lessons/S01E01.js';
 import './lessons/S01E02.js';
+import './lessons/S01E03.js';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element not found');

@@ -12,6 +12,7 @@
     "@ai-devs-4/general": "*",
     "@ai-devs-4/s01e01": "*",
     "@ai-devs-4/s01e02": "*",
+    "@ai-devs-4/s01e03": "*",
     "cors": "^2.8.5",
     "express": "^4.19.0"
   },
