@@ -1,6 +1,6 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
-import { config, openai } from '@ai-devs-4/general';
+import { config, openai, submitAnswer, startTunnel } from '@ai-devs-4/general';
 import type OpenAI from 'openai';
 
 export const TASK = 'proxy';
@@ -234,9 +234,39 @@ export function createApp(): express.Application {
 
 async function main(): Promise<void> {
   const app = createApp();
-  app.listen(PROXY_PORT, () => {
-    console.log(`[s01e03] Proxy server running at http://localhost:${PROXY_PORT}`);
+
+  await new Promise<void>((resolve) => {
+    app.listen(PROXY_PORT, () => {
+      console.log(`[s01e03] Proxy server running at http://localhost:${PROXY_PORT}`);
+      resolve();
+    });
   });
+
+  // Start ngrok tunnel
+  const tunnel = await startTunnel({ port: PROXY_PORT });
+  console.log(`[s01e03] Public URL: ${tunnel.url}`);
+
+  // Submit to Hub API
+  const sessionID = `session-${Date.now()}`;
+  console.log(`[s01e03] Submitting to Hub API — url: ${tunnel.url}, sessionID: ${sessionID}`);
+
+  const result = await submitAnswer({
+    task: TASK,
+    answer: { url: tunnel.url, sessionID },
+  });
+  console.log(`[s01e03] Hub response:`, result.message);
+
+  // Keep running — Hub will test the endpoint
+  console.log('[s01e03] Waiting for Hub to test the endpoint... Press Ctrl+C to stop.');
+
+  const shutdown = async (): Promise<void> => {
+    console.log('\n[s01e03] Shutting down...');
+    await tunnel.close();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
 }
 
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
