@@ -245,7 +245,7 @@ export async function run(log?: LogFn): Promise<{ steps: LogEntry[]; declaration
 
   // 5. Submit to Hub API
   _log('Submitting declaration to Hub API...');
-  const result = await submitAnswer({ task: TASK, answer: declaration });
+  const result = await submitAnswer({ task: TASK, answer: { declaration } });
   _log(`Hub response: ${result.message}`, result.message.includes('{FLG:') ? 'success' : 'warn');
 
   const flag = result.message.includes('{FLG:') ? result.message : undefined;
