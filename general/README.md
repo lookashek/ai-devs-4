@@ -95,6 +95,54 @@ deleteFromStore('my_key');
 
 ---
 
+### `file-downloader.ts`
+
+Generic utility for downloading files from URLs. Supports text and binary files, and can follow markdown links to download entire documentation trees.
+
+**Exports:** `downloadFile(url, outputPath)`, `fetchText(url)`, `fetchAndFollowLinks(baseUrl, indexPath, outputDir)`, `DownloadedFile` type
+
+**Usage:**
+```typescript
+import { downloadFile, fetchText, fetchAndFollowLinks } from '@ai-devs-4/general';
+
+// Download a single file
+const path = await downloadFile('https://example.com/file.png', './output/file.png');
+
+// Fetch text content
+const content = await fetchText('https://example.com/doc.md');
+
+// Download an entire documentation tree (follows markdown links)
+const files = await fetchAndFollowLinks(
+  'https://example.com/docs/',
+  'index.md',
+  './local-docs'
+);
+// files: [{ url, localPath, type: 'text' | 'image' }]
+```
+
+---
+
+### `image-to-text.ts`
+
+Extract text and information from images using OpenAI's vision capabilities (gpt-4o).
+
+**Exports:** `imageToText(imagePath, prompt?)`
+
+**Usage:**
+```typescript
+import { imageToText } from '@ai-devs-4/general';
+
+// Extract all text from an image
+const text = await imageToText('./screenshot.png');
+
+// Extract with a custom prompt
+const data = await imageToText('./table.png', 'Extract the table data as JSON');
+```
+
+Supported formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`
+
+---
+
 ## Adding a New Module
 
 1. Create `src/<module-name>.ts`
