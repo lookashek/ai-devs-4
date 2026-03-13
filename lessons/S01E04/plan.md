@@ -151,13 +151,34 @@ Using the exact template from step 3, fill in every field with the correct value
 
 ### 8. Implement the submission script
 
-In `lessons/S01E04/index.ts`, implement the solution:
+In `lessons/S01E04/index.ts`, implement the solution. **Add structured console logging at every key step** so the user can follow what is happening in the terminal. Use `[s01e04]` prefix for all log messages.
+
+Required log points:
+- Starting the script
+- Each documentation file being fetched (URL and status)
+- Image files being processed (file name)
+- Key data extracted from documentation (route code, category, fee)
+- The final declaration text before submission
+- The Hub API response (success or error message)
+- The flag if received
 
 ```typescript
 import { submitAnswer } from '@ai-devs-4/general';
 import { config } from '@ai-devs-4/general';
 
+console.log('[s01e04] Starting transport declaration task...');
+
+// ... fetch docs, process images, extract data ...
+console.log('[s01e04] Fetching documentation from:', url);
+console.log('[s01e04] Downloaded file:', filePath);
+console.log('[s01e04] Processing image:', imagePath);
+console.log('[s01e04] Extracted route code:', routeCode);
+console.log('[s01e04] Selected category:', category);
+console.log('[s01e04] Calculated fee:', fee);
+
 const declaration = `<filled declaration text here>`;
+console.log('[s01e04] Final declaration:');
+console.log(declaration);
 
 const result = await submitAnswer({
   task: 'sendit',
@@ -165,7 +186,7 @@ const result = await submitAnswer({
     declaration: declaration,
   },
 });
-console.log('[s01e04] Result:', result.message);
+console.log('[s01e04] Hub response:', result.message);
 ```
 
 Use the existing `submitAnswer` from `@ai-devs-4/general`. The answer format is:
@@ -181,9 +202,10 @@ Use the existing `submitAnswer` from `@ai-devs-4/general`. The answer format is:
 ### 9. Submit and iterate
 
 1. Run the script: `npx tsx lessons/S01E04/index.ts`
-2. If the Hub returns an error, **read the error message carefully** — it contains hints about what to fix
-3. Adjust the declaration based on the error feedback
-4. Re-submit until the Hub returns `{FLG:...}`
+2. Check the console logs to verify each step completed correctly
+3. If the Hub returns an error, **read the error message carefully** — it contains hints about what to fix
+4. Adjust the declaration based on the error feedback
+5. Re-submit until the Hub returns `{FLG:...}`
 
 ### 10. Create backend router — `backend/src/lessons/s01e04.ts`
 
