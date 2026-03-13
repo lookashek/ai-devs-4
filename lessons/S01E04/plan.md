@@ -1,0 +1,179 @@
+# S01E04 — Transport Declaration for SPK (`sendit`)
+
+## Context
+
+Task: fill out a transport declaration form for the SPK (System Przesyłek Konduktorskich) system and submit it to the Hub API. The declaration must follow the exact template from the SPK documentation. The shipment is reactor fuel cassettes from Gdańsk to Żarnowiec, weighing 2800 kg, using a fake sender ID. The shipment must be free (0 PP cost) — find a package category that is financed by the System. No special remarks should be added.
+
+---
+
+## Pre-Implementation
+
+**Before writing any code, read these files:**
+- `/.ai/README.md`
+- `/.ai/conventions.md`
+- `/.ai/lessons.md`
+- `/.ai/front-end-rules.md`
+- `/general/README.md`
+
+Check whether any reusable utilities already exist in `/general` that can be leveraged (e.g., `config.ts` for env vars, `hub-api.ts` for task submission, `openai-client.ts` for LLM calls). Reuse them. If a new generic utility is needed, create it in `/general/src/` and update `/general/README.md`.
+
+---
+
+## Implementation Steps
+
+### 1. Create lesson directory structure for S01E04
+
+Create these files following the templates in `/.ai/lessons.md`:
+
+- `lessons/S01E04/README.md` — task description and approach
+- `lessons/S01E04/package.json` — workspace package (`@ai-devs-4/s01e04`)
+- `lessons/S01E04/tsconfig.json` — standalone tsconfig (do NOT extend root — see `/.ai/lessons.md`)
+- `lessons/S01E04/index.ts` — main solution script
+
+Run `npm install` from the project root after creating the package.json to link the workspace.
+
+### 2. Fetch and read ALL SPK documentation
+
+Start by fetching the main documentation index:
+
+```
+GET https://hub.ag3nts.org/dane/doc/index.md
+```
+
+**Critical:** This is NOT the only file. The index references multiple other files (attachments, appendices, route maps, fee tables, etc.). You MUST:
+
+1. Parse the index for all links to other documentation files (relative URLs under `https://hub.ag3nts.org/dane/doc/`)
+2. Fetch and read **every referenced file** — text files (`.md`, `.txt`) and image files (`.png`, `.jpg`, etc.)
+3. For image files: download them and use vision capabilities to read their contents — they may contain route maps, fee tables, or other critical data needed for the declaration
+4. Keep track of all information found: declaration template, route codes, fee/tariff tables, package categories, special rules
+
+**Do not skip any file.** The documentation is spread across many files and missing even one could result in an incorrect declaration.
+
+### 3. Identify the declaration template
+
+From the documentation, find the exact template/form for the transport declaration. Note:
+
+- The exact field names and order
+- The separators and formatting characters used
+- Any mandatory fields and their allowed values
+- The template must be reproduced **exactly** — the Hub verifies both values and format
+
+### 4. Determine the correct route code
+
+The shipment goes from **Gdańsk** to **Żarnowiec**. From the documentation:
+
+1. Find the route network/connection map
+2. Identify the route code for the Gdańsk → Żarnowiec segment
+3. Note: the task mentions this route is "closed" — but we should still use the correct code; the task says "we'll deal with that later"
+
+### 5. Determine the correct package category and fee
+
+The budget is **0 PP** (zero). From the documentation:
+
+1. Find the fee/tariff table
+2. Identify which package categories are **financed by the System** (i.e., cost 0 PP to the sender)
+3. The contents are "reactor fuel cassettes" — find the category that best matches this type of cargo and is System-financed
+4. Calculate or look up the exact fee (should be 0 or System-covered) based on: category, weight (2800 kg), and route
+
+### 6. Fill out the declaration
+
+Using the exact template from step 3, fill in every field with the correct values:
+
+| Data Point | Value |
+|---|---|
+| Sender ID | `450202122` |
+| Origin point | Gdańsk |
+| Destination point | Żarnowiec |
+| Weight | 2800 kg (2.8 tons) |
+| Contents description | Reactor fuel cassettes (use exact Polish wording as appropriate from the documentation) |
+| Package category | As determined in step 5 (the one financed by System) |
+| Route code | As determined in step 4 |
+| Fee/cost | As determined in step 5 (0 PP or System-financed notation) |
+| Special remarks | NONE — leave empty or use the "no remarks" format from the template |
+
+**Important considerations:**
+- Use exact formatting from the template — separators, field order, spacing
+- Use the correct abbreviations and codes as defined in the documentation
+- Do not add any extra text, comments, or remarks beyond what is required
+- Check if the documentation specifies how "System-financed" shipments should be marked in the fee field
+
+### 7. Implement the submission script
+
+In `lessons/S01E04/index.ts`, implement the solution:
+
+```typescript
+import { submitAnswer } from '@ai-devs-4/general';
+import { config } from '@ai-devs-4/general';
+
+const declaration = `<filled declaration text here>`;
+
+const result = await submitAnswer({
+  task: 'sendit',
+  answer: {
+    declaration: declaration,
+  },
+});
+console.log('[s01e04] Result:', result.message);
+```
+
+Use the existing `submitAnswer` from `@ai-devs-4/general`. The answer format is:
+```json
+{
+  "task": "sendit",
+  "answer": {
+    "declaration": "<full declaration text>"
+  }
+}
+```
+
+### 8. Submit and iterate
+
+1. Run the script: `npx tsx lessons/S01E04/index.ts`
+2. If the Hub returns an error, **read the error message carefully** — it contains hints about what to fix
+3. Adjust the declaration based on the error feedback
+4. Re-submit until the Hub returns `{FLG:...}`
+
+### 9. Create backend router — `backend/src/lessons/s01e04.ts`
+
+Follow the pattern from `/.ai/lessons.md`:
+- Export `s01e04Router` with `POST /run` endpoint
+- The `/run` endpoint should submit the declaration to the Hub API
+- Return structured `{ steps: LogEntry[], flag?: string }` response
+- Mount in `backend/src/index.ts` as `/api/lessons/s01e04`
+
+### 10. Create frontend lesson — `frontend/src/lessons/S01E04.ts`
+
+Follow the pattern from `/.ai/lessons.md`:
+- Register via `registerLesson()` with id `S01E04`, name `"Transport Declaration"`, description `"SPK transport declaration for reactor fuel"`
+- Call backend `POST /api/lessons/s01e04/run`
+- Add side-effect import `import './lessons/S01E04.js';` in `frontend/src/main.tsx`
+- Use theme tokens from `frontend/src/styles/theme.ts`
+
+### 11. Update READMEs
+
+- Update `lessons/S01E04/README.md` with approach taken and flag received
+- Update `general/README.md` if any new shared modules were created
+
+---
+
+## Technical Notes
+
+- **Documentation is multi-file:** The SPK documentation spans multiple files including at least one image. All files must be fetched and read.
+- **Image processing:** Some documentation files are images (e.g., route maps, tables). Use vision capabilities to extract data from them.
+- **Exact formatting:** The declaration template must be reproduced character-for-character. Even whitespace differences may cause rejection.
+- **System-financed category:** The key to 0 PP cost is finding the right package category. Strategic/military shipments or reactor-related cargo likely falls under a category the System finances.
+- **Error messages are hints:** If the Hub rejects the declaration, the error message tells you exactly what's wrong. Parse it and fix the specific issue.
+- **Route may be listed as closed:** The Gdańsk-Żarnowiec route may appear as blocked/closed in the docs. Use the correct route code anyway — the task says to ignore this for now.
+
+## Verification Checklist
+
+1. All SPK documentation files (including images) have been fetched and read
+2. Declaration template matches the exact format from the documentation
+3. All fields are filled with correct values and proper codes/abbreviations
+4. Package category is one that is financed by the System (0 PP cost)
+5. Route code is correct for Gdańsk → Żarnowiec
+6. No special remarks are included in the declaration
+7. Sender ID is `450202122`
+8. Weight is correctly specified as 2800 kg
+9. Contents description accurately describes reactor fuel cassettes
+10. Hub API returns `{FLG:...}` on submission
