@@ -95,6 +95,33 @@ deleteFromStore('my_key');
 
 ---
 
+### `ngrok-tunnel.ts`
+
+Programmatic ngrok tunnel — starts a public HTTPS tunnel to a local port using the `@ngrok/ngrok` SDK. Requires `NGROK_AUTHTOKEN` env var (or pass `authtoken` option).
+
+**Exports:** `startTunnel(options)`
+
+**Usage:**
+```typescript
+import { startTunnel } from '@ai-devs-4/general';
+
+const tunnel = await startTunnel({ port: 3000 });
+console.log(tunnel.url); // https://abc123.ngrok-free.app
+
+// When done:
+await tunnel.close();
+```
+
+**TunnelOptions:**
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `port` | `number` | — | Local port to tunnel to (required) |
+| `authtoken` | `string` | `NGROK_AUTHTOKEN` env var | ngrok auth token |
+
+**Returns:** `{ url: string, close: () => Promise<void> }`
+
+---
+
 ## Adding a New Module
 
 1. Create `src/<module-name>.ts`
