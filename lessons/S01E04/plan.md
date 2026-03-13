@@ -21,7 +21,45 @@ Check whether any reusable utilities already exist in `/general` that can be lev
 
 ## Implementation Steps
 
-### 1. Create lesson directory structure for S01E04
+### 1. Create reusable utilities in `/general`
+
+Before starting the lesson, create two new reusable modules in `/general/src/`. These will be useful across multiple lessons.
+
+#### 1a. Create `general/src/file-downloader.ts` — File Download Utility
+
+A generic utility for downloading files from URLs. It should:
+
+- Export a `downloadFile(url: string, outputPath: string): Promise<string>` function that downloads any file (text, binary, image) from a URL and saves it to disk at `outputPath`. Returns the absolute path of the saved file.
+- Export a `fetchText(url: string): Promise<string>` function that fetches a URL and returns its content as a string (for `.md`, `.txt`, `.json`, etc.).
+- Export a `fetchAndFollowLinks(baseUrl: string, indexPath: string, outputDir: string): Promise<DownloadedFile[]>` function that:
+  1. Fetches an index/markdown file from `baseUrl + indexPath`
+  2. Parses it for all relative links to other files (markdown links like `[text](path)` and image references like `![alt](path)`)
+  3. Downloads ALL referenced files to `outputDir`, preserving relative paths
+  4. Returns an array of `{ url: string, localPath: string, type: 'text' | 'image' }` for each downloaded file
+- Handle HTTP errors gracefully with meaningful error messages
+- Use native `fetch` (Node 18+) — no extra dependencies needed
+
+#### 1b. Create `general/src/image-to-text.ts` — Image Description Utility
+
+A generic utility for extracting text/information from images using OpenAI's vision capabilities. It should:
+
+- Export an `imageToText(imagePath: string, prompt?: string): Promise<string>` function that:
+  1. Reads an image file from disk (supports `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`)
+  2. Converts it to base64
+  3. Sends it to OpenAI's vision-capable model (e.g., `gpt-4o`) with a prompt asking to describe/extract all text and data from the image
+  4. Returns the model's text response
+- The `prompt` parameter is optional — default to something like `"Extract and return ALL text, data, tables, and information visible in this image. Preserve the original formatting and structure as much as possible."`
+- Reuse the existing `openai` client from `general/src/openai-client.ts`
+- No extra dependencies needed
+
+#### 1c. Export and document both modules
+
+1. Add exports for both new modules in `general/src/index.ts`
+2. Update `general/README.md` with documentation sections for both modules (description, exports, usage examples) — follow the existing format
+
+#### 1d. Run `npm install` from the project root to ensure everything links correctly.
+
+### 2. Create lesson directory structure for S01E04
 
 Create these files following the templates in `/.ai/lessons.md`:
 
@@ -32,24 +70,38 @@ Create these files following the templates in `/.ai/lessons.md`:
 
 Run `npm install` from the project root after creating the package.json to link the workspace.
 
-### 2. Fetch and read ALL SPK documentation
+### 3. Fetch and read ALL SPK documentation
 
-Start by fetching the main documentation index:
+Use the new `fetchAndFollowLinks` utility from `@ai-devs-4/general` to download the entire documentation tree:
 
+```typescript
+import { fetchAndFollowLinks } from '@ai-devs-4/general';
+
+const files = await fetchAndFollowLinks(
+  'https://hub.ag3nts.org/dane/doc/',
+  'index.md',
+  './lessons/S01E04/docs'
+);
 ```
-GET https://hub.ag3nts.org/dane/doc/index.md
+
+This will:
+1. Fetch `https://hub.ag3nts.org/dane/doc/index.md`
+2. Parse it for all links to other files
+3. Download every referenced file to `lessons/S01E04/docs/`
+
+**Critical:** The index references multiple other files (attachments, appendices, route maps, fee tables, etc.). Verify all referenced files were downloaded. If `fetchAndFollowLinks` misses any (e.g., nested references), manually fetch them using `fetchText` or `downloadFile`.
+
+For any downloaded **image files**, use the `imageToText` utility to extract their contents:
+
+```typescript
+import { imageToText } from '@ai-devs-4/general';
+
+const imageContent = await imageToText('./lessons/S01E04/docs/some-image.png');
 ```
-
-**Critical:** This is NOT the only file. The index references multiple other files (attachments, appendices, route maps, fee tables, etc.). You MUST:
-
-1. Parse the index for all links to other documentation files (relative URLs under `https://hub.ag3nts.org/dane/doc/`)
-2. Fetch and read **every referenced file** — text files (`.md`, `.txt`) and image files (`.png`, `.jpg`, etc.)
-3. For image files: download them and use vision capabilities to read their contents — they may contain route maps, fee tables, or other critical data needed for the declaration
-4. Keep track of all information found: declaration template, route codes, fee/tariff tables, package categories, special rules
 
 **Do not skip any file.** The documentation is spread across many files and missing even one could result in an incorrect declaration.
 
-### 3. Identify the declaration template
+### 4. Identify the declaration template
 
 From the documentation, find the exact template/form for the transport declaration. Note:
 
@@ -58,7 +110,7 @@ From the documentation, find the exact template/form for the transport declarati
 - Any mandatory fields and their allowed values
 - The template must be reproduced **exactly** — the Hub verifies both values and format
 
-### 4. Determine the correct route code
+### 5. Determine the correct route code
 
 The shipment goes from **Gdańsk** to **Żarnowiec**. From the documentation:
 
@@ -66,7 +118,7 @@ The shipment goes from **Gdańsk** to **Żarnowiec**. From the documentation:
 2. Identify the route code for the Gdańsk → Żarnowiec segment
 3. Note: the task mentions this route is "closed" — but we should still use the correct code; the task says "we'll deal with that later"
 
-### 5. Determine the correct package category and fee
+### 6. Determine the correct package category and fee
 
 The budget is **0 PP** (zero). From the documentation:
 
@@ -75,7 +127,7 @@ The budget is **0 PP** (zero). From the documentation:
 3. The contents are "reactor fuel cassettes" — find the category that best matches this type of cargo and is System-financed
 4. Calculate or look up the exact fee (should be 0 or System-covered) based on: category, weight (2800 kg), and route
 
-### 6. Fill out the declaration
+### 7. Fill out the declaration
 
 Using the exact template from step 3, fill in every field with the correct values:
 
@@ -97,7 +149,7 @@ Using the exact template from step 3, fill in every field with the correct value
 - Do not add any extra text, comments, or remarks beyond what is required
 - Check if the documentation specifies how "System-financed" shipments should be marked in the fee field
 
-### 7. Implement the submission script
+### 8. Implement the submission script
 
 In `lessons/S01E04/index.ts`, implement the solution:
 
@@ -126,14 +178,14 @@ Use the existing `submitAnswer` from `@ai-devs-4/general`. The answer format is:
 }
 ```
 
-### 8. Submit and iterate
+### 9. Submit and iterate
 
 1. Run the script: `npx tsx lessons/S01E04/index.ts`
 2. If the Hub returns an error, **read the error message carefully** — it contains hints about what to fix
 3. Adjust the declaration based on the error feedback
 4. Re-submit until the Hub returns `{FLG:...}`
 
-### 9. Create backend router — `backend/src/lessons/s01e04.ts`
+### 10. Create backend router — `backend/src/lessons/s01e04.ts`
 
 Follow the pattern from `/.ai/lessons.md`:
 - Export `s01e04Router` with `POST /run` endpoint
@@ -141,7 +193,7 @@ Follow the pattern from `/.ai/lessons.md`:
 - Return structured `{ steps: LogEntry[], flag?: string }` response
 - Mount in `backend/src/index.ts` as `/api/lessons/s01e04`
 
-### 10. Create frontend lesson — `frontend/src/lessons/S01E04.ts`
+### 11. Create frontend lesson — `frontend/src/lessons/S01E04.ts`
 
 Follow the pattern from `/.ai/lessons.md`:
 - Register via `registerLesson()` with id `S01E04`, name `"Transport Declaration"`, description `"SPK transport declaration for reactor fuel"`
@@ -149,7 +201,7 @@ Follow the pattern from `/.ai/lessons.md`:
 - Add side-effect import `import './lessons/S01E04.js';` in `frontend/src/main.tsx`
 - Use theme tokens from `frontend/src/styles/theme.ts`
 
-### 11. Update READMEs
+### 12. Update READMEs
 
 - Update `lessons/S01E04/README.md` with approach taken and flag received
 - Update `general/README.md` if any new shared modules were created
