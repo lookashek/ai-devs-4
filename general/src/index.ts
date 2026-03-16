@@ -4,3 +4,5 @@ export type { HubResponse } from './hub-api.js';
 export { openai, chat, ask } from './openai-client.js';
 export type { ChatMessage, ChatOptions } from './openai-client.js';
 export { saveToStore, getFromStore, deleteFromStore } from './data-store.js';
+export { resilientFetch } from './resilient-fetch.js';
+export type { RetryOptions } from './resilient-fetch.js';
