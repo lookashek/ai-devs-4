@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { theme } from '../styles/theme';
 
-export type LogLevel = 'info' | 'success' | 'error' | 'warn';
+export type LogLevel = 'info' | 'success' | 'error' | 'warn' | 'debug';
 
 export interface LogEntry {
   id: string;
@@ -12,6 +12,7 @@ export interface LogEntry {
 
 interface ConsoleProps {
   logs: LogEntry[];
+  showDebug?: boolean;
 }
 
 const LEVEL_LABELS: Record<LogLevel, string> = {
@@ -19,6 +20,7 @@ const LEVEL_LABELS: Record<LogLevel, string> = {
   success: ' OK ',
   error: 'ERR ',
   warn: 'WARN',
+  debug: 'DBUG',
 };
 
 const LEVEL_CLASS: Record<LogLevel, { level: string; msg: string }> = {
@@ -26,31 +28,34 @@ const LEVEL_CLASS: Record<LogLevel, { level: string; msg: string }> = {
   success: { level: theme.consoleLevelSuccess, msg: theme.consoleMsgSuccess },
   error: { level: theme.consoleLevelError, msg: theme.consoleMsgError },
   warn: { level: theme.consoleLevelWarn, msg: theme.consoleMsgWarn },
+  debug: { level: theme.consoleLevelDebug, msg: theme.consoleMsgDebug },
 };
 
-export function Console({ logs }: ConsoleProps): JSX.Element {
+export function Console({ logs, showDebug = false }: ConsoleProps): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const visibleLogs = showDebug ? logs : logs.filter(l => l.level !== 'debug');
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+  }, [visibleLogs]);
 
   return (
     <div className={theme.consoleWrap}>
       {/* Console title bar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-cyber-border/60 bg-cyber-black/40 shrink-0">
         <span className={theme.label}>console output</span>
-        {logs.length > 0 && (
-          <span className="ml-auto text-xs font-mono text-cyber-muted">{logs.length} lines</span>
+        {visibleLogs.length > 0 && (
+          <span className="ml-auto text-xs font-mono text-cyber-muted">{visibleLogs.length} lines</span>
         )}
       </div>
 
       {/* Log lines */}
       <div className={theme.consoleOutput}>
-        {logs.length === 0 ? (
+        {visibleLogs.length === 0 ? (
           <p className={theme.consolePlaceholder}>// awaiting execution...</p>
         ) : (
-          logs.map(entry => {
+          visibleLogs.map(entry => {
             const cls = LEVEL_CLASS[entry.level];
             return (
               <div key={entry.id} className={theme.consoleRow}>

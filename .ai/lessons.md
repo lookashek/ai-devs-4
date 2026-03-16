@@ -143,6 +143,35 @@ Do NOT extend the root tsconfig — it excludes the `lessons/` directory.
 
 ---
 
+## Debug Logging
+
+The frontend Console supports a **debug mode** toggle. When enabled, log entries with level `'debug'` are displayed; when disabled they are hidden.
+
+**Use `addLog(message, 'debug')` for detailed diagnostic information** such as:
+- Raw API request/response payloads
+- Intermediate data transformations (before/after)
+- LLM prompt contents and raw completions
+- Timing/performance data for individual steps
+- Variable values and decision points in logic flow
+
+**Guidelines:**
+- Every backend router should include debug-level logs alongside the regular info/success/warn/error logs.
+- Use `log('...', 'debug')` in backend routers (same pattern as other levels).
+- Use `addLog('...', 'debug')` in frontend `execute()` functions.
+- Debug logs should be verbose — this is the place for full payloads, schemas, and raw data.
+- Regular `info` logs stay concise and user-friendly; `debug` logs can be technical and detailed.
+
+Example in a backend router:
+```typescript
+log('Fetching data from external API...');
+log(`Request URL: ${url}, headers: ${JSON.stringify(headers)}`, 'debug');
+const data = await fetchData();
+log(`Fetched ${data.length} records`);
+log(`Raw response payload: ${JSON.stringify(data).slice(0, 500)}`, 'debug');
+```
+
+---
+
 ## 4. Backend Router — `backend/src/lessons/s0xey.ts`
 
 Each lesson gets its own Express Router exported as `s0xeyRouter`.
@@ -171,7 +200,7 @@ import {
 
 interface LogEntry {
   message: string;
-  level: 'info' | 'success' | 'warn' | 'error';
+  level: 'info' | 'success' | 'warn' | 'error' | 'debug';
 }
 
 export interface RunResponse {
@@ -238,7 +267,7 @@ const BACKEND_URL = 'http://localhost:3001';
 
 interface LogEntry {
   message: string;
-  level: 'info' | 'success' | 'warn' | 'error';
+  level: 'info' | 'success' | 'warn' | 'error' | 'debug';
 }
 
 interface RunResponse {
