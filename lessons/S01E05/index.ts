@@ -76,57 +76,44 @@ export async function runRailwayTask(
   const helpMessage = helpResponse.message ?? JSON.stringify(helpResponse);
   emit(`Help response message: ${helpMessage}`, 'info');
 
-  // Step 2: Follow the documented action sequence
-  // Based on the plan, the API will tell us what actions are available and in what order
-  // We'll parse the response and follow the instructions
+  // The help response documents the exact sequence:
+  // 1. reconfigure — enable reconfigure mode for the route
+  // 2. setstatus   — set route status to RTOPEN (open/activate)
+  // 3. save        — exit reconfigure mode (commits the change)
 
-  // The plan says typical flow is:
-  // 1. help -> get documentation
-  // 2. Some status/query action -> get route details
-  // 3. Some activation/enable action -> activate the route
-
-  // After reading help, determine what actions are available
-  // We'll try common action names based on the task context
-  // The API error messages will guide us to the right parameter names
-
-  // Try to find and use the route status action
-  emit('Step 2: Checking route status/details', 'info');
-
-  // Based on the self-documenting API pattern, let's try a route status check
-  // We'll follow the API's instructions from the help response
-  const statusResponse = await callRailwayApi(
-    { action: 'status', route: ROUTE_NAME },
+  emit('Step 2: Enabling reconfigure mode for route X-01', 'info');
+  const reconfigureResponse = await callRailwayApi(
+    { action: 'reconfigure', route: ROUTE_NAME },
     emit,
   );
+  emit(`Reconfigure response: ${JSON.stringify(reconfigureResponse)}`, 'info');
 
-  const statusMessage = statusResponse.message ?? JSON.stringify(statusResponse);
-  emit(`Status response: ${statusMessage}`, 'info');
-
-  // Step 3: Activate the route
-  emit('Step 3: Activating route X-01', 'info');
-
-  const activateResponse = await callRailwayApi(
-    { action: 'activate', route: ROUTE_NAME },
+  emit('Step 3: Setting route status to RTOPEN', 'info');
+  const setStatusResponse = await callRailwayApi(
+    { action: 'setstatus', route: ROUTE_NAME, value: 'RTOPEN' },
     emit,
   );
+  emit(`SetStatus response: ${JSON.stringify(setStatusResponse)}`, 'info');
 
-  const activateMessage = activateResponse.message ?? JSON.stringify(activateResponse);
-  emit(`Activate response: ${activateMessage}`, 'info');
-
-  // Check if we got the flag
-  if (typeof activateMessage === 'string' && activateMessage.includes('{FLG:')) {
-    emit(`Task complete! Flag: ${activateMessage}`, 'success');
-    return activateResponse;
+  const setStatusMessage = setStatusResponse.message ?? '';
+  if (typeof setStatusMessage === 'string' && setStatusMessage.includes('{FLG:')) {
+    emit(`Task complete! Flag: ${setStatusMessage}`, 'success');
+    return setStatusResponse;
   }
 
-  // If not, check the status response for flag
-  if (typeof statusMessage === 'string' && statusMessage.includes('{FLG:')) {
-    emit(`Task complete! Flag: ${statusMessage}`, 'success');
-    return statusResponse;
+  emit('Step 4: Saving and exiting reconfigure mode', 'info');
+  const saveResponse = await callRailwayApi(
+    { action: 'save', route: ROUTE_NAME },
+    emit,
+  );
+  emit(`Save response: ${JSON.stringify(saveResponse)}`, 'info');
+
+  const saveMessage = saveResponse.message ?? '';
+  if (typeof saveMessage === 'string' && saveMessage.includes('{FLG:')) {
+    emit(`Task complete! Flag: ${saveMessage}`, 'success');
   }
 
-  // Return the last response
-  return activateResponse;
+  return saveResponse;
 }
 
 async function main(): Promise<void> {
