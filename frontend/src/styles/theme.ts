@@ -84,4 +84,17 @@ export const theme = {
   consoleMsgSuccess: 'text-cyber-green break-all',
   consoleMsgError: 'text-cyber-red break-all',
   consoleMsgWarn: 'text-cyber-yellow break-all',
+
+  // Debug log level
+  consoleLevelDebug: 'text-cyber-muted shrink-0 select-none',
+  consoleMsgDebug: 'text-cyber-muted break-all',
+
+  // Debug toggle
+  debugToggle: 'flex items-center gap-2 text-xs font-mono text-cyber-muted select-none cursor-pointer',
+  debugToggleSwitch: 'relative w-8 h-4 rounded-full border transition-colors',
+  debugToggleSwitchOff: 'bg-cyber-dark border-cyber-border',
+  debugToggleSwitchOn: 'bg-cyber-purple/30 border-cyber-purple/60',
+  debugToggleKnob: 'absolute top-0.5 w-3 h-3 rounded-full transition-all',
+  debugToggleKnobOff: 'left-0.5 bg-cyber-muted',
+  debugToggleKnobOn: 'left-[calc(100%-0.875rem)] bg-cyber-purple',
 } as const;

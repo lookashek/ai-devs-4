@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { theme } from '../styles/theme';
 import { Console } from '../components/Console.js';
@@ -15,6 +15,13 @@ export function LessonPane(): JSX.Element {
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState(false);
+  const [debugMode, setDebugMode] = useState<boolean>(() => {
+    try { return localStorage.getItem('debugMode') === 'true'; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('debugMode', String(debugMode)); } catch { /* noop */ }
+  }, [debugMode]);
 
   const addLog = useCallback((message: string, level: LogEntry['level'] = 'info'): void => {
     setLogs(prev => [
@@ -67,9 +74,9 @@ export function LessonPane(): JSX.Element {
       {/* Pane body */}
       <div className={theme.paneBody}>
         {/* Console fills remaining space */}
-        <Console logs={logs} />
+        <Console logs={logs} showDebug={debugMode} />
 
-        {/* Execute button */}
+        {/* Execute button + debug toggle */}
         <div className="shrink-0 flex items-center gap-4">
           <button
             className={running ? theme.btnSecondary : theme.btnPrimary}
@@ -86,6 +93,17 @@ export function LessonPane(): JSX.Element {
               ✕  Clear
             </button>
           )}
+
+          {/* Debug mode toggle — pushed to the right */}
+          <label className={`${theme.debugToggle} ml-auto`}>
+            <div
+              className={`${theme.debugToggleSwitch} ${debugMode ? theme.debugToggleSwitchOn : theme.debugToggleSwitchOff}`}
+              onClick={() => setDebugMode(prev => !prev)}
+            >
+              <div className={`${theme.debugToggleKnob} ${debugMode ? theme.debugToggleKnobOn : theme.debugToggleKnobOff}`} />
+            </div>
+            <span className={debugMode ? 'text-cyber-purple' : ''}>debug</span>
+          </label>
         </div>
       </div>
     </>
