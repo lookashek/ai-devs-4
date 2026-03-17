@@ -3,10 +3,11 @@ import {
   TASK,
   GRID_POSITIONS,
   resetGrid,
-  fetchGridImage,
+  fetchGridJson,
   fetchSolvedImage,
   rotateTile,
-  analyzeGrid,
+  analyzeGridJson,
+  analyzeGridImage,
   computeAllRotations,
   type GridState,
 } from '@ai-devs-4/s02e02';
@@ -38,7 +39,7 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
       for (let i = 0; i < count; i++) {
         log(`Rotating tile ${position} (${i + 1}/${count})`);
         const response = await rotateTile(position);
-        log(`Hub response: ${response.message}`, 'debug');
+        log(`Hub response for ${position}: code=${response.code} message="${response.message}"`, 'debug');
         if (response.message?.includes('{FLG:')) {
           return response.message;
         }
@@ -48,27 +49,25 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
   }
 
   try {
-    // 1. Fetch and analyze solved image to derive target state
+    // 1. Derive target state from solved image
     log('Fetching solved image to derive target state...');
     const solvedImage = await fetchSolvedImage();
-    const targetState: GridState = await analyzeGrid(solvedImage, 'target');
-    log(`Target state derived`, 'success');
-    log(`Target state: ${JSON.stringify(targetState)}`, 'debug');
+    const targetState: GridState = await analyzeGridImage(solvedImage, 'target');
+    log(`Target state derived: ${JSON.stringify(targetState)}`, 'debug');
 
     // 2. Reset grid
     log(`Resetting grid (task: ${TASK})...`);
     await resetGrid();
     log('Grid reset to initial state');
 
-    // 3. Fetch current image
-    log('Fetching current grid image...');
-    const gridImage = await fetchGridImage();
-    log('Grid image fetched');
+    // 3. Fetch current state from JSON (no vision needed)
+    log('Fetching current grid state from JSON...');
+    const gridJson = await fetchGridJson();
+    log(`Raw JSON: ${JSON.stringify(gridJson)}`, 'debug');
 
-    // 4. Analyze with vision
-    log('Analyzing current grid via GPT-4o vision...');
-    const currentState: GridState = await analyzeGrid(gridImage, 'current');
-    log(`Vision analysis complete`, 'success');
+    // 4. Analyze JSON with LLM
+    log('Analyzing JSON with GPT-4o...');
+    const currentState: GridState = await analyzeGridJson(gridJson, 'current');
     log(`Current state: ${JSON.stringify(currentState)}`, 'debug');
 
     // 5. Compute rotations
@@ -78,14 +77,12 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
     const totalRotations = Object.values(rotations).filter(c => c > 0).reduce((a, b) => a + b, 0);
     log(`Total rotations to apply: ${totalRotations}`);
 
-    // 6. Warn on vision errors
     const errors = Object.entries(rotations).filter(([, c]) => c === -1);
     if (errors.length > 0) {
-      log(`Vision errors on tiles: ${errors.map(([p]) => p).join(', ')}`, 'warn');
-      log(`Note: "connection count mismatch" means vision read wrong shape — check raw vision logs above`, 'warn');
+      log(`Parse errors on tiles: ${errors.map(([p]) => p).join(', ')}`, 'warn');
     }
 
-    // 7. Apply rotations
+    // 6. Apply rotations
     log('Applying rotations...');
     const flag = await applyRotations(rotations);
     if (flag) {
@@ -94,46 +91,36 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
       return;
     }
 
-    // 8. Verify
-    log('All rotations sent. Re-fetching for verification...');
-    const verifyImage = await fetchGridImage();
-    const verifyState = await analyzeGrid(verifyImage, 'verify');
+    // 7. Verify via JSON re-fetch
+    log('All rotations sent. Verifying via JSON re-fetch...');
+    const verifyJson = await fetchGridJson();
+    log(`Verify JSON: ${JSON.stringify(verifyJson)}`, 'debug');
 
-    // Log per-tile match summary
-    const POSITIONS = Object.keys(targetState);
-    const matchSummary = POSITIONS.map(pos => {
-      const cur = (verifyState[pos] ?? []).slice().sort().join(',');
-      const tgt = (targetState[pos] ?? []).slice().sort().join(',');
-      return `${pos}:${cur === tgt ? '✓' : `✗(got [${cur}] want [${tgt}])`}`;
-    }).join(' | ');
-    log(`Verify tile summary: ${matchSummary}`, 'debug');
+    const verifyState: GridState = await analyzeGridJson(verifyJson, 'verify');
+    log(`Verify state: ${JSON.stringify(verifyState)}`, 'debug');
+
+    // Per-tile match summary
+    const matchSummary = GRID_POSITIONS.map(pos => {
+      const cur = [...(verifyState[pos] ?? [])].sort().join(',');
+      const tgt = [...(targetState[pos] ?? [])].sort().join(',');
+      return `${pos}:${cur === tgt ? '✓' : `✗(got[${cur}]want[${tgt}])`}`;
+    }).join(' ');
+    log(`Tile match summary: ${matchSummary}`, 'debug');
 
     const corrections = computeAllRotations(verifyState, targetState, 'verify');
     const needsMore = Object.values(corrections).some(c => c > 0);
 
     if (needsMore) {
       log(`Corrections needed: ${JSON.stringify(corrections)}`, 'warn');
-      let pendingCorrections = corrections;
-      const MAX_ROUNDS = 2;
-
-      for (let round = 1; round <= MAX_ROUNDS; round++) {
-        if (!Object.values(pendingCorrections).some(c => c > 0)) break;
-
-        log(`Correction round ${round}...`);
-        const correctionFlag = await applyRotations(pendingCorrections);
-        if (correctionFlag) {
-          log(`Flag received: ${correctionFlag}`, 'success');
-          res.json({ steps, flag: correctionFlag } satisfies RunResponse);
-          return;
-        }
-
-        const nextImage = await fetchGridImage();
-        const nextState = await analyzeGrid(nextImage, `verify-${round}`);
-        pendingCorrections = computeAllRotations(nextState, targetState, `verify-${round}`);
+      const correctionFlag = await applyRotations(corrections);
+      if (correctionFlag) {
+        log(`Flag received: ${correctionFlag}`, 'success');
+        res.json({ steps, flag: correctionFlag } satisfies RunResponse);
+        return;
       }
     }
 
-    log('Grid appears correct but no flag received.', 'warn');
+    log('Grid appears correct but no flag received — target state may be wrong.', 'warn');
     res.json({ steps } satisfies RunResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

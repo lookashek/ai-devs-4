@@ -22,7 +22,7 @@ export async function submitAnswer({ task, answer }: SubmitAnswerParams): Promis
     answer,
   };
 
-  console.log(`[hub-api] Submitting answer for task: ${task}`);
+  console.log(`[hub-api] Submitting answer for task: ${task}, answer:`, JSON.stringify(answer));
 
   const res = await fetch(HUB_URL, {
     method: 'POST',
