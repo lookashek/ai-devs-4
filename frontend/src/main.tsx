@@ -8,6 +8,7 @@ import './lessons/S01E01.js';
 import './lessons/S01E02.js';
 import './lessons/S01E03.js';
 import './lessons/S01E05.js';
+import './lessons/S02E02.js';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element not found');
