@@ -72,7 +72,7 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
     log(`Current state: ${JSON.stringify(currentState)}`, 'debug');
 
     // 5. Compute rotations
-    const rotations = computeAllRotations(currentState, targetState);
+    const rotations = computeAllRotations(currentState, targetState, 'initial');
     log(`Rotations needed: ${JSON.stringify(rotations)}`, 'debug');
 
     const totalRotations = Object.values(rotations).filter(c => c > 0).reduce((a, b) => a + b, 0);
@@ -82,6 +82,7 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
     const errors = Object.entries(rotations).filter(([, c]) => c === -1);
     if (errors.length > 0) {
       log(`Vision errors on tiles: ${errors.map(([p]) => p).join(', ')}`, 'warn');
+      log(`Note: "connection count mismatch" means vision read wrong shape — check raw vision logs above`, 'warn');
     }
 
     // 7. Apply rotations
@@ -97,7 +98,17 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
     log('All rotations sent. Re-fetching for verification...');
     const verifyImage = await fetchGridImage();
     const verifyState = await analyzeGrid(verifyImage, 'verify');
-    const corrections = computeAllRotations(verifyState, targetState);
+
+    // Log per-tile match summary
+    const POSITIONS = Object.keys(targetState);
+    const matchSummary = POSITIONS.map(pos => {
+      const cur = (verifyState[pos] ?? []).slice().sort().join(',');
+      const tgt = (targetState[pos] ?? []).slice().sort().join(',');
+      return `${pos}:${cur === tgt ? '✓' : `✗(got [${cur}] want [${tgt}])`}`;
+    }).join(' | ');
+    log(`Verify tile summary: ${matchSummary}`, 'debug');
+
+    const corrections = computeAllRotations(verifyState, targetState, 'verify');
     const needsMore = Object.values(corrections).some(c => c > 0);
 
     if (needsMore) {
@@ -118,7 +129,7 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
 
         const nextImage = await fetchGridImage();
         const nextState = await analyzeGrid(nextImage, `verify-${round}`);
-        pendingCorrections = computeAllRotations(nextState, targetState);
+        pendingCorrections = computeAllRotations(nextState, targetState, `verify-${round}`);
       }
     }
 

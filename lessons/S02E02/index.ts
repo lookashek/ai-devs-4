@@ -188,16 +188,26 @@ export function computeRotationsForTile(current: Direction[], target: Direction[
 export function computeAllRotations(
   current: GridState,
   target: GridState,
+  label = '',
 ): Record<string, number> {
   const result: Record<string, number> = {};
+  const prefix = label ? `[${label}] ` : '';
 
   for (const position of GRID_POSITIONS) {
     const cur = current[position] ?? [];
     const tgt = target[position] ?? [];
     const count = computeRotationsForTile(cur, tgt);
 
+    const curStr = `[${cur.sort().join(',')}]`;
+    const tgtStr = `[${tgt.sort().join(',')}]`;
+
     if (count === -1) {
-      console.warn(`[s02e02] WARNING: Vision error for tile ${position} — no matching rotation found`);
+      const reason = cur.length !== tgt.length
+        ? `connection count mismatch (current: ${cur.length}, target: ${tgt.length})`
+        : `shape mismatch (no rotation of ${curStr} produces ${tgtStr})`;
+      console.warn(`[s02e02] ${prefix}MISMATCH ${position}: current=${curStr} target=${tgtStr} — ${reason}`);
+    } else {
+      console.log(`[s02e02] ${prefix}tile ${position}: current=${curStr} target=${tgtStr} → rotate ${count}x`);
     }
 
     result[position] = count;
@@ -244,7 +254,7 @@ export async function main(): Promise<void> {
   console.log('[s02e02] Current state:', JSON.stringify(currentState));
 
   // 5. Compute rotations
-  const rotations = computeAllRotations(currentState, targetState);
+  const rotations = computeAllRotations(currentState, targetState, 'initial');
   console.log('[s02e02] Rotations needed:', JSON.stringify(rotations));
 
   // 6. Check for vision errors
@@ -264,7 +274,7 @@ export async function main(): Promise<void> {
   console.log('[s02e02] All rotations sent. Verifying...');
   const verifyImage = await fetchGridImage();
   const verifyState = await analyzeGrid(verifyImage, 'verify');
-  const corrections = computeAllRotations(verifyState, targetState);
+  const corrections = computeAllRotations(verifyState, targetState, 'verify');
   const needsMore = Object.values(corrections).some(c => c > 0);
 
   if (needsMore) {
@@ -283,7 +293,7 @@ export async function main(): Promise<void> {
       }
       const nextImage = await fetchGridImage();
       const nextState = await analyzeGrid(nextImage, `verify-${correctionRound}`);
-      pendingCorrections = computeAllRotations(nextState, targetState);
+      pendingCorrections = computeAllRotations(nextState, targetState, `verify-${correctionRound}`);
     }
   } else {
     console.log('[s02e02] Grid appears correct but no flag received.');
