@@ -24,23 +24,9 @@ export type TileState = Direction[];
 export type GridState = Record<string, TileState>;
 
 const DirectionArraySchema = z.array(z.enum(['top', 'right', 'bottom', 'left']));
+const GridStateSchema = z.record(z.string(), DirectionArraySchema);
 
-// ─── Target (solved) state ────────────────────────────────────────────────────
-// Derived from visual inspection of https://hub.ag3nts.org/i/solved_electricity.png
-// Row 1: top row, Row 2: middle row, Row 3: bottom row
-// Columns 1-3 left to right
-
-export const TARGET_STATE: GridState = {
-  '1x1': ['right', 'bottom'],         // L-bend: right + bottom
-  '1x2': ['left', 'right', 'bottom'], // T-junction: left + right + bottom
-  '1x3': ['left', 'bottom'],          // L-bend: left + bottom
-  '2x1': ['top', 'right', 'bottom'],  // T-junction: top + right + bottom
-  '2x2': ['top', 'left'],             // L-bend: top + left
-  '2x3': ['top', 'right', 'bottom'],  // T-junction: top + right + bottom
-  '3x1': ['top', 'right'],            // L-bend: top + right
-  '3x2': ['left', 'right'],           // Straight horizontal
-  '3x3': ['top', 'left'],             // L-bend: top + left
-};
+const SOLVED_IMAGE_URL = 'https://hub.ag3nts.org/i/solved_electricity.png';
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
@@ -63,14 +49,20 @@ export async function rotateTile(position: string): Promise<HubResponse> {
   return submitAnswer({ task: TASK, answer: { rotate: position } });
 }
 
+export async function fetchSolvedImage(): Promise<Buffer> {
+  console.log('[s02e02] Fetching solved (target) image...');
+  const res = await resilientFetch(SOLVED_IMAGE_URL, { method: 'GET' });
+  const arrayBuffer = await res.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 // ─── Image processing ─────────────────────────────────────────────────────────
+// cropTiles is kept as a utility; primary analysis uses the full-image approach below.
 
 export async function cropTiles(imageBuffer: Buffer): Promise<Map<string, Buffer>> {
   const metadata = await sharp(imageBuffer).metadata();
   const { width = 0, height = 0 } = metadata;
 
-  // The grid is a 3x3 tile region. Heuristic: assume equal division of image.
-  // The image typically has a thin border — divide into 3 equal cells each axis.
   const tileWidth = Math.floor(width / 3);
   const tileHeight = Math.floor(height / 3);
 
@@ -96,56 +88,73 @@ export async function cropTiles(imageBuffer: Buffer): Promise<Map<string, Buffer
 
 // ─── Vision analysis ──────────────────────────────────────────────────────────
 
-export async function analyzeTile(tileBuffer: Buffer, position: string): Promise<Direction[]> {
-  const base64 = tileBuffer.toString('base64');
+const GRID_VISION_PROMPT = `This is a 3x3 electrical cable grid puzzle.
+
+The grid has 9 cells arranged in 3 rows and 3 columns:
+- Row 1 (top row):    positions 1x1 (left), 1x2 (center), 1x3 (right)
+- Row 2 (middle row): positions 2x1 (left), 2x2 (center), 2x3 (right)
+- Row 3 (bottom row): positions 3x1 (left), 3x2 (center), 3x3 (right)
+
+Each cell contains a cable connector piece. The thick dark lines show the cable path.
+The cable can exit through any combination of the cell's 4 edges: top, right, bottom, left.
+
+Cable types:
+- Straight: 2 opposite edges (e.g. left+right, or top+bottom)
+- L-bend/corner: 2 adjacent edges (e.g. top+right, right+bottom, bottom+left, left+top)
+- T-junction: 3 edges
+- Cross: all 4 edges
+- Dead-end: 1 edge
+
+For EACH of the 9 cells, list which edges the cable segment exits through.
+
+Respond with ONLY a valid JSON object — no markdown fences, no explanation:
+{
+  "1x1": ["edge", ...],
+  "1x2": [...],
+  "1x3": [...],
+  "2x1": [...],
+  "2x2": [...],
+  "2x3": [...],
+  "3x1": [...],
+  "3x2": [...],
+  "3x3": [...]
+}`;
+
+export async function analyzeGrid(imageBuffer: Buffer, label = 'grid'): Promise<GridState> {
+  const base64 = imageBuffer.toString('base64');
   const dataUrl = `data:image/png;base64,${base64}`;
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4o',
     temperature: 0,
-    max_tokens: 100,
+    max_tokens: 600,
     messages: [
       {
         role: 'system',
-        content: 'You analyze electrical cable tiles. Each tile is a square with cable segments connecting to edges. Respond ONLY with a JSON array.',
+        content: 'You analyze electrical cable grid puzzles. Respond ONLY with valid JSON.',
       },
       {
         role: 'user',
         content: [
-          {
-            type: 'image_url',
-            image_url: { url: dataUrl, detail: 'high' },
-          },
-          {
-            type: 'text',
-            text: `This is a single tile from a 3x3 electrical grid at position ${position}.
-The tile has thick dark cable lines on a light background.
-Which edges of this tile do the cables connect to?
-Possible edges: top, right, bottom, left.
-Respond with ONLY a JSON array of connected edges, e.g.: ["top", "right"]`,
-          },
+          { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
+          { type: 'text', text: GRID_VISION_PROMPT },
         ],
       },
     ],
   });
 
-  const raw = response.choices[0]?.message?.content ?? '[]';
-  const match = raw.match(/\[.*?\]/s);
-  const jsonStr = match ? match[0] : '[]';
-  const parsed = DirectionArraySchema.parse(JSON.parse(jsonStr));
+  const raw = response.choices[0]?.message?.content ?? '{}';
+  console.log(`[s02e02] Raw vision response (${label}):`, raw);
 
-  console.log(`[s02e02] Tile ${position}: [${parsed.join(', ')}]`);
-  return parsed;
-}
+  const match = raw.match(/\{[\s\S]*\}/);
+  const jsonStr = match ? match[0] : '{}';
+  const parsed = GridStateSchema.parse(JSON.parse(jsonStr));
 
-export async function analyzeGrid(imageBuffer: Buffer): Promise<GridState> {
-  const tiles = await cropTiles(imageBuffer);
   const state: GridState = {};
-
   for (const position of GRID_POSITIONS) {
-    const tileBuffer = tiles.get(position);
-    if (!tileBuffer) throw new Error(`[s02e02] Missing tile buffer for ${position}`);
-    state[position] = await analyzeTile(tileBuffer, position);
+    const connections = DirectionArraySchema.parse(parsed[position] ?? []);
+    state[position] = connections;
+    console.log(`[s02e02] ${label} tile ${position}: [${connections.join(', ')}]`);
   }
 
   return state;
@@ -217,39 +226,45 @@ async function applyRotations(rotations: Record<string, number>): Promise<string
 }
 
 export async function main(): Promise<void> {
-  // 1. Reset the grid
+  // 1. Fetch and analyze the solved (target) image
+  console.log('[s02e02] Analyzing solved image to derive target state...');
+  const solvedImage = await fetchSolvedImage();
+  const targetState = await analyzeGrid(solvedImage, 'target');
+  console.log('[s02e02] Target state:', JSON.stringify(targetState));
+
+  // 2. Reset the grid
   await resetGrid();
 
-  // 2. Fetch current state image
+  // 3. Fetch current state image
   const gridImage = await fetchGridImage();
 
-  // 3. Analyze current state via vision
-  console.log('[s02e02] Analyzing grid with vision...');
-  const currentState = await analyzeGrid(gridImage);
+  // 4. Analyze current state via vision
+  console.log('[s02e02] Analyzing current grid with vision...');
+  const currentState = await analyzeGrid(gridImage, 'current');
   console.log('[s02e02] Current state:', JSON.stringify(currentState));
 
-  // 4. Compute rotations
-  const rotations = computeAllRotations(currentState, TARGET_STATE);
+  // 5. Compute rotations
+  const rotations = computeAllRotations(currentState, targetState);
   console.log('[s02e02] Rotations needed:', JSON.stringify(rotations));
 
-  // 5. Check for vision errors
+  // 6. Check for vision errors
   const errors = Object.entries(rotations).filter(([, count]) => count === -1);
   if (errors.length > 0) {
     console.warn('[s02e02] WARNING: Vision errors for tiles:', errors.map(([pos]) => pos).join(', '));
   }
 
-  // 6. Apply rotations
+  // 7. Apply rotations
   const flag = await applyRotations(rotations);
   if (flag) {
     console.log(`[s02e02] FLAG: ${flag}`);
     return;
   }
 
-  // 7. Verify — re-fetch and check
+  // 8. Verify — re-fetch and check
   console.log('[s02e02] All rotations sent. Verifying...');
   const verifyImage = await fetchGridImage();
-  const verifyState = await analyzeGrid(verifyImage);
-  const corrections = computeAllRotations(verifyState, TARGET_STATE);
+  const verifyState = await analyzeGrid(verifyImage, 'verify');
+  const corrections = computeAllRotations(verifyState, targetState);
   const needsMore = Object.values(corrections).some(c => c > 0);
 
   if (needsMore) {
@@ -267,11 +282,11 @@ export async function main(): Promise<void> {
         return;
       }
       const nextImage = await fetchGridImage();
-      const nextState = await analyzeGrid(nextImage);
-      pendingCorrections = computeAllRotations(nextState, TARGET_STATE);
+      const nextState = await analyzeGrid(nextImage, `verify-${correctionRound}`);
+      pendingCorrections = computeAllRotations(nextState, targetState);
     }
   } else {
-    console.log('[s02e02] Grid appears correct but no flag received. Verify TARGET_STATE.');
+    console.log('[s02e02] Grid appears correct but no flag received.');
   }
 }
 

@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import {
   TASK,
-  TARGET_STATE,
   GRID_POSITIONS,
   resetGrid,
   fetchGridImage,
+  fetchSolvedImage,
   rotateTile,
   analyzeGrid,
   computeAllRotations,
@@ -48,36 +48,43 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
   }
 
   try {
-    // 1. Reset grid
+    // 1. Fetch and analyze solved image to derive target state
+    log('Fetching solved image to derive target state...');
+    const solvedImage = await fetchSolvedImage();
+    const targetState: GridState = await analyzeGrid(solvedImage, 'target');
+    log(`Target state derived`, 'success');
+    log(`Target state: ${JSON.stringify(targetState)}`, 'debug');
+
+    // 2. Reset grid
     log(`Resetting grid (task: ${TASK})...`);
     await resetGrid();
     log('Grid reset to initial state');
 
-    // 2. Fetch current image
+    // 3. Fetch current image
     log('Fetching current grid image...');
     const gridImage = await fetchGridImage();
     log('Grid image fetched');
 
-    // 3. Analyze with vision
-    log('Analyzing grid tiles via GPT-4o vision...');
-    const currentState: GridState = await analyzeGrid(gridImage);
+    // 4. Analyze with vision
+    log('Analyzing current grid via GPT-4o vision...');
+    const currentState: GridState = await analyzeGrid(gridImage, 'current');
     log(`Vision analysis complete`, 'success');
     log(`Current state: ${JSON.stringify(currentState)}`, 'debug');
 
-    // 4. Compute rotations
-    const rotations = computeAllRotations(currentState, TARGET_STATE);
+    // 5. Compute rotations
+    const rotations = computeAllRotations(currentState, targetState);
     log(`Rotations needed: ${JSON.stringify(rotations)}`, 'debug');
 
     const totalRotations = Object.values(rotations).filter(c => c > 0).reduce((a, b) => a + b, 0);
     log(`Total rotations to apply: ${totalRotations}`);
 
-    // 5. Warn on vision errors
+    // 6. Warn on vision errors
     const errors = Object.entries(rotations).filter(([, c]) => c === -1);
     if (errors.length > 0) {
       log(`Vision errors on tiles: ${errors.map(([p]) => p).join(', ')}`, 'warn');
     }
 
-    // 6. Apply rotations
+    // 7. Apply rotations
     log('Applying rotations...');
     const flag = await applyRotations(rotations);
     if (flag) {
@@ -86,11 +93,11 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
       return;
     }
 
-    // 7. Verify
+    // 8. Verify
     log('All rotations sent. Re-fetching for verification...');
     const verifyImage = await fetchGridImage();
-    const verifyState = await analyzeGrid(verifyImage);
-    const corrections = computeAllRotations(verifyState, TARGET_STATE);
+    const verifyState = await analyzeGrid(verifyImage, 'verify');
+    const corrections = computeAllRotations(verifyState, targetState);
     const needsMore = Object.values(corrections).some(c => c > 0);
 
     if (needsMore) {
@@ -110,12 +117,12 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
         }
 
         const nextImage = await fetchGridImage();
-        const nextState = await analyzeGrid(nextImage);
-        pendingCorrections = computeAllRotations(nextState, TARGET_STATE);
+        const nextState = await analyzeGrid(nextImage, `verify-${round}`);
+        pendingCorrections = computeAllRotations(nextState, targetState);
       }
     }
 
-    log('Grid appears correct but no flag received. Verify TARGET_STATE.', 'warn');
+    log('Grid appears correct but no flag received.', 'warn');
     res.json({ steps } satisfies RunResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
