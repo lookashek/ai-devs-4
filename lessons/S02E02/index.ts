@@ -42,13 +42,12 @@ const GridValuesSchema = z.array(z.array(z.number()));
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
-export async function resetGrid(): Promise<GridValues> {
+export async function resetGrid(): Promise<void> {
   console.log('[s02e02] ── RESET ──────────────────────────────────────────');
-  const res = await resilientFetch(RESET_JSON_URL, { method: 'GET' });
-  const data = GridValuesSchema.parse(await res.json());
-  console.log('[s02e02] Grid reset. State after reset:');
-  logGrid(data, 'after reset');
-  return data;
+  // We ignore the reset response — it may return the pre-reset state.
+  // Always follow up with a separate fetchGridJson() call.
+  await resilientFetch(RESET_JSON_URL, { method: 'GET' });
+  console.log('[s02e02] Reset request sent.');
 }
 
 export async function fetchGridJson(): Promise<GridValues> {
@@ -134,23 +133,26 @@ export async function main(): Promise<void> {
   console.log('[s02e02]  S02E02 — Electricity Grid Puzzle');
   console.log('[s02e02] ══════════════════════════════════════════════════');
 
-  // 1. Reset grid
-  const initialGrid = await resetGrid();
+  // 1. Reset grid, then fetch the actual current state separately
+  await resetGrid();
+  console.log('[s02e02] ── STEP 2: FETCH CURRENT STATE ───────────────────');
+  const initialGrid = await fetchGridJson();
+  logGrid(initialGrid, 'initial (post-reset)');
 
-  // 2. Compute rotations directly from JSON values (no LLM needed)
-  console.log('[s02e02] ── STEP 2: COMPUTE NEEDED ROTATIONS ───────────────');
+  // 3. Compute rotations directly from JSON values (no LLM needed)
+  console.log('[s02e02] ── STEP 3: COMPUTE NEEDED ROTATIONS ───────────────');
   const rotations = computeRotationsFromGrid(initialGrid);
 
-  // 3. Apply rotations
-  console.log('[s02e02] ── STEP 3: APPLY ROTATIONS ─────────────────────────');
+  // 4. Apply rotations
+  console.log('[s02e02] ── STEP 4: APPLY ROTATIONS ─────────────────────────');
   const flag = await applyRotations(rotations);
   if (flag) {
     console.log(`[s02e02] 🏁 FLAG: ${flag}`);
     return;
   }
 
-  // 4. Verify
-  console.log('[s02e02] ── STEP 4: VERIFY ───────────────────────────────────');
+  // 5. Verify
+  console.log('[s02e02] ── STEP 5: VERIFY ───────────────────────────────────');
   const verifyGrid = await fetchGridJson();
   logGrid(verifyGrid, 'after rotations');
   const solved = isSolved(verifyGrid);

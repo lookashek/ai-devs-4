@@ -47,12 +47,17 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
   }
 
   try {
-    // 1. Reset grid
+    // 1. Reset grid (ignore response — may return pre-reset state)
     log(`[1/4] Resetting grid (task: ${TASK})...`);
-    const initialGrid = await resetGrid();
-    log(`Initial grid: ${JSON.stringify(initialGrid)}`, 'debug');
+    await resetGrid();
+    log('Reset sent. Fetching actual current state...');
 
-    // 2. Compute rotations directly from JSON values — NO LLM NEEDED.
+    // 2. Fetch actual current state separately
+    const initialGrid = await fetchGridJson();
+    log(`Initial grid: ${JSON.stringify(initialGrid)}`, 'debug');
+    logGrid(initialGrid, 'initial');
+
+    // 3. Compute rotations directly from JSON values — NO LLM NEEDED.
     // Each value v = CW rotations applied from solved state.
     // Rotations needed = (4 - v%4) % 4.
     log('[2/4] Computing rotations from grid values...');

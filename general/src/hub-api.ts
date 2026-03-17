@@ -6,7 +6,7 @@ const HUB_URL = 'https://hub.ag3nts.org/verify';
 const HubResponseSchema = z.object({
   code: z.number(),
   message: z.string(),
-});
+}).passthrough();
 
 export type HubResponse = z.infer<typeof HubResponseSchema>;
 
@@ -34,7 +34,8 @@ export async function submitAnswer({ task, answer }: SubmitAnswerParams): Promis
     throw new Error(`[hub-api] HTTP ${res.status}: ${await res.text()}`);
   }
 
-  const data = HubResponseSchema.parse(await res.json());
-  console.log(`[hub-api] Response:`, data);
+  const rawText = await res.text();
+  console.log(`[hub-api] Raw response:`, rawText);
+  const data = HubResponseSchema.parse(JSON.parse(rawText));
   return data;
 }
