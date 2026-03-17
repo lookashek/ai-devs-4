@@ -16,7 +16,33 @@ export const GRID_POSITIONS = [
 const BASE_URL = `https://hub.ag3nts.org/data/${config.AIDEVS_API_KEY}/electricity`;
 const GRID_JSON_URL = `${BASE_URL}.json`;
 const RESET_JSON_URL = `${GRID_JSON_URL}?reset=1`;
-const SOLVED_IMAGE_URL = 'https://hub.ag3nts.org/i/solved_electricity.png';
+
+// ─── Target (solved) state ────────────────────────────────────────────────────
+// Derived by visual inspection and topological verification of solved_electricity.png.
+// All 10 adjacent connections are mutually consistent (verified below).
+//
+//  1x1[right,bottom] ↔ 1x2[left]          ✓
+//  1x1[bottom]       ↔ 2x1[top]            ✓
+//  1x2[right]        ↔ 1x3[left]           ✓
+//  1x2[bottom]       ↔ 2x2[top]            ✓
+//  1x3[bottom]       ↔ 2x3[top]            ✓
+//  2x1[bottom]       ↔ 3x1[top]            ✓
+//  2x2[right]        ↔ 2x3[left]           ✓
+//  2x3[bottom]       ↔ 3x3[top]            ✓
+//  3x1[right]        ↔ 3x2[left]           ✓
+//  3x2[right]        ↔ 3x3[left]           ✓
+
+export const TARGET_STATE: GridState = {
+  '1x1': ['right', 'bottom'],         // L-bend
+  '1x2': ['left', 'right', 'bottom'], // T-junction
+  '1x3': ['left', 'bottom'],          // L-bend
+  '2x1': ['top', 'bottom'],           // Straight vertical
+  '2x2': ['top', 'right'],            // L-bend
+  '2x3': ['top', 'left', 'bottom'],   // T-junction
+  '3x1': ['top', 'right'],            // L-bend
+  '3x2': ['left', 'right'],           // Straight horizontal
+  '3x3': ['top', 'left'],             // L-bend
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -274,42 +300,39 @@ async function applyRotations(rotations: Record<string, number>): Promise<string
 }
 
 export async function main(): Promise<void> {
-  // 1. Derive target state from solved image (vision, one-time)
-  console.log('[s02e02] Deriving target state from solved image...');
-  const solvedImage = await fetchSolvedImage();
-  const targetState = await analyzeGridImage(solvedImage, 'target');
-  console.log('[s02e02] Target state:', JSON.stringify(targetState));
+  // Target state is hardcoded (topologically verified from solved image).
+  console.log('[s02e02] Target state:', JSON.stringify(TARGET_STATE));
 
-  // 2. Reset grid
+  // 1. Reset grid
   await resetGrid();
 
-  // 3. Fetch and analyze current state from JSON
+  // 2. Fetch and analyze current state from JSON
   console.log('[s02e02] Fetching current state from JSON...');
   const gridJson = await fetchGridJson();
   const currentState = await analyzeGridJson(gridJson, 'current');
   console.log('[s02e02] Current state:', JSON.stringify(currentState));
 
-  // 4. Compute rotations
-  const rotations = computeAllRotations(currentState, targetState, 'initial');
+  // 3. Compute rotations
+  const rotations = computeAllRotations(currentState, TARGET_STATE, 'initial');
   console.log('[s02e02] Rotations needed:', JSON.stringify(rotations));
 
   const errors = Object.entries(rotations).filter(([, c]) => c === -1);
   if (errors.length > 0) {
-    console.warn('[s02e02] Vision/parse errors on tiles:', errors.map(([p]) => p).join(', '));
+    console.warn('[s02e02] Parse errors on tiles:', errors.map(([p]) => p).join(', '));
   }
 
-  // 5. Apply rotations
+  // 4. Apply rotations
   const flag = await applyRotations(rotations);
   if (flag) {
     console.log(`[s02e02] FLAG: ${flag}`);
     return;
   }
 
-  // 6. Verify via JSON re-fetch
+  // 5. Verify via JSON re-fetch
   console.log('[s02e02] All rotations sent. Verifying via JSON...');
   const verifyJson = await fetchGridJson();
   const verifyState = await analyzeGridJson(verifyJson, 'verify');
-  const corrections = computeAllRotations(verifyState, targetState, 'verify');
+  const corrections = computeAllRotations(verifyState, TARGET_STATE, 'verify');
 
   if (Object.values(corrections).some(c => c > 0)) {
     console.log('[s02e02] Corrections needed:', JSON.stringify(corrections));

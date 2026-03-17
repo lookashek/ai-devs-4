@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import {
   TASK,
+  TARGET_STATE,
   GRID_POSITIONS,
   resetGrid,
   fetchGridJson,
-  fetchSolvedImage,
   rotateTile,
   analyzeGridJson,
-  analyzeGridImage,
   computeAllRotations,
   type GridState,
 } from '@ai-devs-4/s02e02';
@@ -49,29 +48,26 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
   }
 
   try {
-    // 1. Derive target state from solved image
-    log('Fetching solved image to derive target state...');
-    const solvedImage = await fetchSolvedImage();
-    const targetState: GridState = await analyzeGridImage(solvedImage, 'target');
-    log(`Target state derived: ${JSON.stringify(targetState)}`, 'debug');
+    // Target state is hardcoded (topologically verified from solved image).
+    log(`Target state: ${JSON.stringify(TARGET_STATE)}`, 'debug');
 
-    // 2. Reset grid
+    // 1. Reset grid
     log(`Resetting grid (task: ${TASK})...`);
     await resetGrid();
     log('Grid reset to initial state');
 
-    // 3. Fetch current state from JSON (no vision needed)
+    // 2. Fetch current state from JSON
     log('Fetching current grid state from JSON...');
     const gridJson = await fetchGridJson();
     log(`Raw JSON: ${JSON.stringify(gridJson)}`, 'debug');
 
-    // 4. Analyze JSON with LLM
+    // 3. Analyze JSON with LLM
     log('Analyzing JSON with GPT-4o...');
     const currentState: GridState = await analyzeGridJson(gridJson, 'current');
     log(`Current state: ${JSON.stringify(currentState)}`, 'debug');
 
-    // 5. Compute rotations
-    const rotations = computeAllRotations(currentState, targetState, 'initial');
+    // 4. Compute rotations
+    const rotations = computeAllRotations(currentState, TARGET_STATE, 'initial');
     log(`Rotations needed: ${JSON.stringify(rotations)}`, 'debug');
 
     const totalRotations = Object.values(rotations).filter(c => c > 0).reduce((a, b) => a + b, 0);
@@ -82,7 +78,7 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
       log(`Parse errors on tiles: ${errors.map(([p]) => p).join(', ')}`, 'warn');
     }
 
-    // 6. Apply rotations
+    // 5. Apply rotations
     log('Applying rotations...');
     const flag = await applyRotations(rotations);
     if (flag) {
@@ -91,7 +87,7 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
       return;
     }
 
-    // 7. Verify via JSON re-fetch
+    // 6. Verify via JSON re-fetch
     log('All rotations sent. Verifying via JSON re-fetch...');
     const verifyJson = await fetchGridJson();
     log(`Verify JSON: ${JSON.stringify(verifyJson)}`, 'debug');
@@ -102,12 +98,12 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
     // Per-tile match summary
     const matchSummary = GRID_POSITIONS.map(pos => {
       const cur = [...(verifyState[pos] ?? [])].sort().join(',');
-      const tgt = [...(targetState[pos] ?? [])].sort().join(',');
+      const tgt = [...(TARGET_STATE[pos] ?? [])].sort().join(',');
       return `${pos}:${cur === tgt ? '✓' : `✗(got[${cur}]want[${tgt}])`}`;
     }).join(' ');
     log(`Tile match summary: ${matchSummary}`, 'debug');
 
-    const corrections = computeAllRotations(verifyState, targetState, 'verify');
+    const corrections = computeAllRotations(verifyState, TARGET_STATE, 'verify');
     const needsMore = Object.values(corrections).some(c => c > 0);
 
     if (needsMore) {
