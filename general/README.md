@@ -95,6 +95,44 @@ deleteFromStore('my_key');
 
 ---
 
+### `resilient-fetch.ts`
+
+Generic HTTP client wrapper with automatic retry on transient errors (503, 429) and rate-limit awareness.
+
+**Exports:** `resilientFetch(url, options, retryOptions?)`, `RetryOptions` interface
+
+**Usage:**
+```typescript
+import { resilientFetch } from '@ai-devs-4/general';
+
+const response = await resilientFetch(
+  'https://hub.ag3nts.org/verify',
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apikey: '...', task: 'railway', answer: { action: 'help' } }),
+  },
+  { maxRetries: 10, initialDelayMs: 2000, maxDelayMs: 60000 },
+);
+const data = await response.json();
+```
+
+**RetryOptions:**
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `maxRetries` | `number` | `10` | Maximum retry attempts |
+| `initialDelayMs` | `number` | `2000` | Initial backoff delay (ms) |
+| `maxDelayMs` | `number` | `60000` | Maximum backoff delay (ms) |
+| `retryOnStatus` | `number[]` | `[503, 429]` | HTTP status codes to retry |
+
+Features:
+- Exponential backoff on 503 (server overload) and 429 (rate limit) responses
+- Reads `Retry-After` header on 429 responses
+- Checks `X-RateLimit-Remaining` / `RateLimit-Remaining` headers after every response
+- Logs all attempts, status codes, and wait times with `[resilient-fetch]` prefix
+
+---
+
 ## Adding a New Module
 
 1. Create `src/<module-name>.ts`
