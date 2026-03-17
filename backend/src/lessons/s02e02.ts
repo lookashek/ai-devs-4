@@ -1,14 +1,13 @@
 import { Router } from 'express';
 import {
   TASK,
-  TARGET_STATE,
   GRID_POSITIONS,
   resetGrid,
   fetchGridJson,
   rotateTile,
-  analyzeGridJson,
-  computeAllRotations,
-  type GridState,
+  computeRotationsFromGrid,
+  isSolved,
+  logGrid,
 } from '@ai-devs-4/s02e02';
 
 interface LogEntry {
@@ -36,9 +35,9 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
       if (count <= 0) continue;
 
       for (let i = 0; i < count; i++) {
-        log(`Rotating tile ${position} (${i + 1}/${count})`);
+        log(`Rotating ${position} (${i + 1}/${count})`);
         const response = await rotateTile(position);
-        log(`Hub response for ${position}: code=${response.code} message="${response.message}"`, 'debug');
+        log(`  → hub: code=${response.code} msg="${response.message}"`, 'debug');
         if (response.message?.includes('{FLG:')) {
           return response.message;
         }
@@ -48,38 +47,28 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
   }
 
   try {
-    // Target state is hardcoded (topologically verified from solved image).
-    log(`Target state: ${JSON.stringify(TARGET_STATE)}`, 'debug');
-
     // 1. Reset grid
-    log(`Resetting grid (task: ${TASK})...`);
-    await resetGrid();
-    log('Grid reset to initial state');
+    log(`[1/4] Resetting grid (task: ${TASK})...`);
+    const initialGrid = await resetGrid();
+    log(`Initial grid: ${JSON.stringify(initialGrid)}`, 'debug');
 
-    // 2. Fetch current state from JSON
-    log('Fetching current grid state from JSON...');
-    const gridJson = await fetchGridJson();
-    log(`Raw JSON: ${JSON.stringify(gridJson)}`, 'debug');
+    // 2. Compute rotations directly from JSON values — NO LLM NEEDED.
+    // Each value v = CW rotations applied from solved state.
+    // Rotations needed = (4 - v%4) % 4.
+    log('[2/4] Computing rotations from grid values...');
+    const rotations = computeRotationsFromGrid(initialGrid);
 
-    // 3. Analyze JSON with LLM
-    log('Analyzing JSON with GPT-4o...');
-    const currentState: GridState = await analyzeGridJson(gridJson, 'current');
-    log(`Current state: ${JSON.stringify(currentState)}`, 'debug');
+    const rotationSummary = GRID_POSITIONS
+      .filter(p => (rotations[p] ?? 0) > 0)
+      .map(p => `${p}:${rotations[p]}`)
+      .join(', ');
+    log(`Rotations needed: ${rotationSummary || 'none'}`);
 
-    // 4. Compute rotations
-    const rotations = computeAllRotations(currentState, TARGET_STATE, 'initial');
-    log(`Rotations needed: ${JSON.stringify(rotations)}`, 'debug');
+    const total = Object.values(rotations).reduce((s, v) => s + v, 0);
+    log(`Total CW rotations to apply: ${total}`);
 
-    const totalRotations = Object.values(rotations).filter(c => c > 0).reduce((a, b) => a + b, 0);
-    log(`Total rotations to apply: ${totalRotations}`);
-
-    const errors = Object.entries(rotations).filter(([, c]) => c === -1);
-    if (errors.length > 0) {
-      log(`Parse errors on tiles: ${errors.map(([p]) => p).join(', ')}`, 'warn');
-    }
-
-    // 5. Apply rotations
-    log('Applying rotations...');
+    // 3. Apply rotations
+    log('[3/4] Applying rotations...');
     const flag = await applyRotations(rotations);
     if (flag) {
       log(`Flag received: ${flag}`, 'success');
@@ -87,36 +76,39 @@ s02e02Router.post('/run', async (_req, res): Promise<void> => {
       return;
     }
 
-    // 6. Verify via JSON re-fetch
-    log('All rotations sent. Verifying via JSON re-fetch...');
-    const verifyJson = await fetchGridJson();
-    log(`Verify JSON: ${JSON.stringify(verifyJson)}`, 'debug');
+    // 4. Verify
+    log('[4/4] Verifying result...');
+    const verifyGrid = await fetchGridJson();
+    log(`Verify grid: ${JSON.stringify(verifyGrid)}`, 'debug');
+    logGrid(verifyGrid, 'verify');
 
-    const verifyState: GridState = await analyzeGridJson(verifyJson, 'verify');
-    log(`Verify state: ${JSON.stringify(verifyState)}`, 'debug');
+    const solved = isSolved(verifyGrid);
+    log(`All values ≡ 0 mod 4: ${solved}`, solved ? 'success' : 'warn');
 
-    // Per-tile match summary
-    const matchSummary = GRID_POSITIONS.map(pos => {
-      const cur = [...(verifyState[pos] ?? [])].sort().join(',');
-      const tgt = [...(TARGET_STATE[pos] ?? [])].sort().join(',');
-      return `${pos}:${cur === tgt ? '✓' : `✗(got[${cur}]want[${tgt}])`}`;
-    }).join(' ');
-    log(`Tile match summary: ${matchSummary}`, 'debug');
+    if (!solved) {
+      log('Applying corrections...', 'warn');
+      const corrections = computeRotationsFromGrid(verifyGrid);
+      const corrSummary = GRID_POSITIONS
+        .filter(p => (corrections[p] ?? 0) > 0)
+        .map(p => `${p}:${corrections[p]}`)
+        .join(', ');
+      log(`Correction rotations: ${corrSummary}`);
 
-    const corrections = computeAllRotations(verifyState, TARGET_STATE, 'verify');
-    const needsMore = Object.values(corrections).some(c => c > 0);
-
-    if (needsMore) {
-      log(`Corrections needed: ${JSON.stringify(corrections)}`, 'warn');
       const correctionFlag = await applyRotations(corrections);
       if (correctionFlag) {
         log(`Flag received: ${correctionFlag}`, 'success');
         res.json({ steps, flag: correctionFlag } satisfies RunResponse);
         return;
       }
+
+      const finalGrid = await fetchGridJson();
+      log(`Final grid: ${JSON.stringify(finalGrid)}`, 'debug');
+      log(`Final solved: ${isSolved(finalGrid)}`, isSolved(finalGrid) ? 'success' : 'warn');
+    } else {
+      log('Grid is in solved state.', 'success');
     }
 
-    log('Grid appears correct but no flag received — target state may be wrong.', 'warn');
+    log('Done. Flag may have been returned on last rotation.', 'warn');
     res.json({ steps } satisfies RunResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
