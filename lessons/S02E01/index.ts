@@ -9,8 +9,9 @@ const MAX_RETRIES = 3;
 
 // Static prompt prefix — kept constant across all items for cache efficiency.
 // Variable data (id, description) appended at the end.
+// Must be very short to stay under 100 tokens total (prefix + item data).
 const PROMPT_PREFIX =
-  'Reply DNG or NEU only. Reactor/nuclear=always NEU. Dangerous(explosive,toxic,weapon,radioactive,flammable,bomb,chemical,grenade,mine,gun,ammo)=DNG. Else NEU.';
+  'DNG or NEU? Reactor/nuclear→NEU always. Weapon,rifle,explosive,toxic,radioactive,hatchet→DNG. Else→NEU.';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export async function fetchItems(): Promise<CsvRow[]> {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // CSV format: id,description (simple — no quoted fields expected)
+    // CSV format: id,"description" — descriptions may be quoted
     const commaIdx = trimmed.indexOf(',');
     if (commaIdx === -1) {
       console.warn(`[${TASK}] Skipping malformed line: ${trimmed}`);
@@ -59,7 +60,11 @@ export async function fetchItems(): Promise<CsvRow[]> {
     }
 
     const id = trimmed.slice(0, commaIdx).trim();
-    const description = trimmed.slice(commaIdx + 1).trim();
+    const rawDesc = trimmed.slice(commaIdx + 1).trim();
+    // Strip surrounding quotes if present
+    const description = rawDesc.startsWith('"') && rawDesc.endsWith('"')
+      ? rawDesc.slice(1, -1)
+      : rawDesc;
 
     const parsed = CsvRowSchema.safeParse({ id, description });
     if (!parsed.success) {
@@ -111,9 +116,9 @@ export async function runClassificationCycle(): Promise<string | undefined> {
       console.log(`[${TASK}] FLAG FOUND: ${flag}`);
     }
 
-    // Check for error indication
-    if (message.toLowerCase().includes('error') || message.toLowerCase().includes('wrong')) {
-      console.error(`[${TASK}] Classification error detected: ${message}`);
+    // Check for failure — stop immediately to save budget
+    if (message.includes('NOT ACCEPTED') || message.includes('Insufficient funds')) {
+      console.error(`[${TASK}] Classification failed: ${message}`);
       return undefined;
     }
   }

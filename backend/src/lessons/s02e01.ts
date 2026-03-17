@@ -43,11 +43,13 @@ s02e01Router.post('/run', async (_req, res): Promise<void> => {
       return;
     }
 
-    // Step 3: Classify each item
+    // Step 3: Classify each item — stop on first failure
     let lastMessage = '';
+    let failed = false;
     for (const item of items) {
       const prompt = buildPrompt(item);
       log(`Classifying item ${item.id}: "${item.description}"`);
+      log(`Prompt: ${prompt}`);
 
       const hubRes = await fetch('https://hub.ag3nts.org/verify', {
         method: 'POST',
@@ -61,8 +63,19 @@ s02e01Router.post('/run', async (_req, res): Promise<void> => {
       const hubData = (await hubRes.json()) as { code: number; message: string };
       lastMessage = hubData.message;
 
-      const level = hubData.code === 0 ? 'success' : 'warn';
-      log(`Item ${item.id}: ${hubData.message}`, level);
+      if (hubData.message.includes('NOT ACCEPTED') || hubData.message.includes('Insufficient funds')) {
+        log(`Item ${item.id}: ${hubData.message}`, 'error');
+        failed = true;
+        break;
+      }
+
+      log(`Item ${item.id}: ${hubData.message}`, hubData.code === 0 ? 'success' : 'warn');
+    }
+
+    if (failed) {
+      log(`Classification failed — prompt may need adjustment. Last error: ${lastMessage}`, 'error');
+      res.json({ steps } satisfies RunResponse);
+      return;
     }
 
     // Check for flag in last response
