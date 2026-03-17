@@ -19,19 +19,16 @@ const RESET_JSON_URL = `${GRID_JSON_URL}?reset=1`;
 
 // ─── Key insight: JSON encoding ───────────────────────────────────────────────
 // electricity.json returns a 3x3 array of integers.
-// Each integer = number of CW rotations applied to that tile FROM its solved state.
+// Each integer = number of CW rotations to APPLY to reach the solved state.
 //
-// Proof: tile 3x2 had value 7. After 1 CW rotation → value 0.
-//        (7 + 1) % 4 = 0 ✓  (period 4 for all non-symmetric tiles)
+// Rotations are modulo 4 (4 rotations = full circle = no change):
+//   value 0 → 0 rotations needed
+//   value 1 → 1 rotation
+//   value 5 → 5%4 = 1 rotation
+//   value 7 → 7%4 = 3 rotations
+//   value 8 → 8%4 = 0 rotations (already solved)
 //
-// Formula: rotations_needed = (4 - value % 4) % 4
-//
-// This works for ALL tile types:
-//   period-4 (L-bend, T-junction, dead-end): exact
-//   period-2 (straight): over-rotates by 2, but 2≡0 mod 2 → still reaches solved
-//   period-1 (cross): 0 rotations always needed → formula gives 0 when value%4=0
-//
-// The solved state for each tile = value ≡ 0 (mod 4).
+// Formula: rotations_needed = value % 4
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -86,10 +83,10 @@ export function computeRotationsFromGrid(grid: GridValues): Record<string, numbe
     for (let col = 0; col < 3; col++) {
       const value = (grid[row] ?? [])[col] ?? 0;
       const position = `${row + 1}x${col + 1}`;
-      const rotations = (4 - (value % 4)) % 4;
+      const rotations = value % 4;
       result[position] = rotations;
       totalRot += rotations;
-      console.log(`[s02e02]   ${position}: value=${value} (v%4=${value % 4}) → needs ${rotations} CW rotation(s)`);
+      console.log(`[s02e02]   ${position}: value=${value} → ${rotations} CW rotation(s)`);
     }
   }
   console.log(`[s02e02] Total rotations to apply: ${totalRot}`);
@@ -100,7 +97,7 @@ export function isSolved(grid: GridValues): boolean {
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 3; c++) {
       const v = (grid[r] ?? [])[c] ?? 0;
-      if (v % 4 !== 0) return false;
+      if (v % 4 !== 0) return false;  // 0, 4, 8, 12 … all mean "solved" (full rotations)
     }
   }
   return true;
