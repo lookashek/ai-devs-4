@@ -46,14 +46,14 @@ export const TARGET_STATE: GridState = {
 
 export async function resetGrid(): Promise<Buffer> {
   console.log('[s02e02] Resetting grid...');
-  const res = await resilientFetch(RESET_URL);
+  const res = await resilientFetch(RESET_URL, { method: 'GET' });
   const arrayBuffer = await res.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
 
 export async function fetchGridImage(): Promise<Buffer> {
   console.log('[s02e02] Fetching current grid image...');
-  const res = await resilientFetch(GRID_IMAGE_URL);
+  const res = await resilientFetch(GRID_IMAGE_URL, { method: 'GET' });
   const arrayBuffer = await res.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
