@@ -5,6 +5,7 @@ import { s01e01Router } from './lessons/s01e01.js';
 import { s01e02Router } from './lessons/s01e02.js';
 import { s01e03Router } from './lessons/s01e03.js';
 import { s01e05Router } from './lessons/s01e05.js';
+import { s02e01Router } from './lessons/s02e01.js';
 
 const app = express();
 const PORT = 3001;
@@ -76,6 +77,7 @@ app.use('/api/lessons/s01e01', s01e01Router);
 app.use('/api/lessons/s01e02', s01e02Router);
 app.use('/api/lessons/s01e03', s01e03Router);
 app.use('/api/lessons/s01e05', s01e05Router);
+app.use('/api/lessons/s02e01', s02e01Router);
 
 app.listen(PORT, () => {
   console.log(`[backend] Server running at http://localhost:${PORT}`);
