@@ -188,23 +188,33 @@ export async function run(): Promise<string> {
 
     console.log(`[s02e03] No flag — feedback: ${result.message}`);
 
-    // Handle "what happened to X" — missing subsystem
-    const missingSubMatch = result.message.match(/what happened to (\S+)/i);
-    const missingSubId = missingSubMatch?.[1]?.replace(/[.,!?]+$/, '');
+    // Handle "what happened to X" — missing/insufficient subsystem info
+    // Extract the subsystem ID (ALL-CAPS code) from feedback
+    const feedbackIds = [...result.message.matchAll(/\b([A-Z][A-Z0-9]{2,})\b/g)]
+      .map((m) => m[1]!)
+      .filter((id) => !['CRIT', 'ERRO', 'WARN', 'INFO'].includes(id));
+    const missingSubId = feedbackIds[0];
 
     if (missingSubId) {
-      console.log(`[s02e03] Adding missing subsystem: ${missingSubId}`);
+      console.log(`[s02e03] Enriching subsystem: ${missingSubId}`);
+      // Remove existing lines for this subsystem (they were insufficient)
+      const existingLines = condensed.split('\n');
+      const withoutSub = existingLines.filter((l) => !l.includes(missingSubId));
+      // Add ALL severity lines for this subsystem (uncompressed, full detail)
       const subLines = sevLines.filter((l) => l.includes(missingSubId));
+      console.log(`[s02e03] Found ${subLines.length} severity lines for ${missingSubId}`);
       if (subLines.length > 0) {
-        const best = subLines.sort((a, b) =>
+        // Take top 5 most severe, unmodified
+        const top = subLines.sort((a, b) =>
           (SEVERITY_RANK[b.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0)
           - (SEVERITY_RANK[a.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0)
-        )[0]!;
-        condensed += '\n' + best;
+        ).slice(0, 5);
+        condensed = [...withoutSub, ...top].join('\n');
       } else {
         // Search ALL lines including INFO
-        const allMatch = rawLog.split('\n').filter((l) => l.includes(missingSubId));
-        if (allMatch.length > 0) condensed += '\n' + allMatch[0]!;
+        const allMatch = rawLog.split('\n').filter((l) => l.trim() && l.includes(missingSubId));
+        console.log(`[s02e03] Found ${allMatch.length} total lines for ${missingSubId}`);
+        condensed = [...withoutSub, ...allMatch.slice(0, 5)].join('\n');
       }
       condensed = sortChronologically(condensed);
       condensed = trimToTokenBudget(condensed, 900);
