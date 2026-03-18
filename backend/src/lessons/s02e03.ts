@@ -3,8 +3,6 @@ import {
   TASK,
   downloadLog,
   filterBySeverity,
-  filterByKeywords,
-  compressLogs,
   run,
 } from '@ai-devs-4/s02e03';
 
