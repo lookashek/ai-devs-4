@@ -9,7 +9,9 @@ const HUB_URL = 'https://hub.ag3nts.org/verify';
 const SEVERITY_PATTERN = /\[(CRIT|ERRO|WARN)\]/;
 const TIMESTAMP_PATTERN = /\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/;
 const MAX_ITERATIONS = 5;
-const TOKEN_BUDGET = 1400; // Hub limit is 1500, leave margin
+// Hub uses a real tokenizer; our chars/3.5 estimate undercounts by ~1.6x
+// Hub limit is 1500, so target ~900 estimated tokens (900 * 1.6 ≈ 1440)
+const TOKEN_BUDGET = 900;
 
 interface HubFeedback {
   code: number;
@@ -165,9 +167,9 @@ export async function run(): Promise<string> {
     `- Output format: YYYY-MM-DD HH:MM [LEVEL] SUBSYSTEM_ID brief_description\n` +
     `- ALL ${subsystems.size} subsystems MUST appear: ${subsystemIds.join(', ')}\n` +
     `- Strict chronological order by timestamp\n` +
-    `- Max 1-2 lines per subsystem, only the most critical events\n` +
-    `- Keep descriptions very short (5-10 words max)\n` +
-    `- Total output must be under 40 lines\n` +
+    `- EXACTLY 1 line per subsystem — pick the single most critical event\n` +
+    `- Descriptions must be extremely short (3-6 words)\n` +
+    `- Total output must be EXACTLY ${subsystems.size} lines (one per subsystem)\n` +
     `- NO markdown, NO code fences, NO commentary — ONLY log lines\n\n` +
     `Log entries:\n${sevLines.join('\n')}`,
     {
@@ -235,8 +237,12 @@ export async function run(): Promise<string> {
       // Re-sort
       condensed = sortChronologically(condensed);
     } else if (result.message.includes('compression') || result.message.includes('context window')) {
-      // Too long — trim harder
-      condensed = trimToTokenBudget(condensed, TOKEN_BUDGET - 200);
+      // Use Hub's actual token count to calculate how much to cut
+      const hubTokens = result.tokenCount ?? 2000;
+      const ratio = hubTokens / Math.max(estimateTokens(condensed), 1);
+      const targetEstimated = Math.floor(1400 / ratio);
+      console.log(`[s02e03] Hub tokens: ${hubTokens}, ratio: ${ratio.toFixed(2)}, targeting ~${targetEstimated} estimated`);
+      condensed = trimToTokenBudget(condensed, targetEstimated);
       console.log(`[s02e03] Trimmed to ~${estimateTokens(condensed)} tokens`);
     }
 
