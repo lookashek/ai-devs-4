@@ -14,7 +14,7 @@ function estimateTokens(text: string): number {
 }
 
 export async function downloadLog(): Promise<string> {
-  const response = await resilientFetch(LOG_URL);
+  const response = await resilientFetch(LOG_URL, { method: 'GET' });
   const text = await response.text();
   console.log(`[s02e03] Downloaded log: ${text.length} chars, ~${text.split('\n').length} lines`);
   return text;
