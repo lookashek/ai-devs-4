@@ -29,6 +29,18 @@ interface SubsystemEntry {
 
 const SEVERITY_RANK: Record<string, number> = { CRIT: 3, ERRO: 2, WARN: 1 };
 
+const TIMESTAMP_PATTERN = /\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/;
+
+/** Strip markdown fences, commentary, and any lines that don't look like log entries */
+function sanitizeLlmOutput(text: string): string {
+  return text
+    .replace(/```[\w]*\n?/g, '')  // remove code fences
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && TIMESTAMP_PATTERN.test(l))  // only keep lines with timestamps
+    .join('\n');
+}
+
 export async function downloadLog(): Promise<string> {
   const response = await resilientFetch(LOG_URL, { method: 'GET' });
   const text = await response.text();
@@ -147,7 +159,7 @@ export async function run(): Promise<string> {
     },
   );
 
-  let condensed = compressed;
+  let condensed = sanitizeLlmOutput(compressed);
   console.log(`[s02e03] Compressed: ~${estimateTokens(condensed)} tokens, ${condensed.split('\n').length} lines`);
 
   // Verify all subsystems are present
@@ -212,18 +224,19 @@ export async function run(): Promise<string> {
     } else {
       // General feedback — use LLM to refine
       console.log(`[s02e03] General feedback, using LLM to refine...`);
-      condensed = await ask(
+      const refined = await ask(
         `Feedback from the system: "${result.message}"\n\n` +
         `Current logs:\n${condensed}\n\n` +
         `All subsystem IDs that must be present: ${[...subsystems.keys()].join(', ')}\n\n` +
         `Improve the log based on feedback. Keep format: [YYYY-MM-DD HH:MM] [LEVEL] SUBSYSTEM_ID description\n` +
-        `Ensure ALL subsystems are covered. Output ONLY log lines.`,
+        `Ensure ALL subsystems are covered. Output ONLY log lines, no markdown fences, no commentary.`,
         {
           model: 'gpt-4o-mini',
           temperature: 0,
-          systemPrompt: 'You are a power plant log analyst. Output only compressed log lines, no commentary.',
+          systemPrompt: 'You are a power plant log analyst. Output only compressed log lines. Never use markdown code fences.',
         },
       );
+      condensed = sanitizeLlmOutput(refined);
     }
 
     console.log(`[s02e03] Updated: ~${estimateTokens(condensed)} tokens, ${condensed.split('\n').length} lines`);
