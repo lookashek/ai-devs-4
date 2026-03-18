@@ -7,12 +7,9 @@ const LOG_URL = `https://hub.ag3nts.org/data/${config.AIDEVS_API_KEY}/failure.lo
 const HUB_URL = 'https://hub.ag3nts.org/verify';
 
 const SEVERITY_PATTERN = /\[(CRIT|ERRO|WARN)\]/;
-
+const TIMESTAMP_PATTERN = /\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/;
 const MAX_ITERATIONS = 5;
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3.5);
-}
+const TOKEN_BUDGET = 1400; // Hub limit is 1500, leave margin
 
 interface HubFeedback {
   code: number;
@@ -29,16 +26,55 @@ interface SubsystemEntry {
 
 const SEVERITY_RANK: Record<string, number> = { CRIT: 3, ERRO: 2, WARN: 1 };
 
-const TIMESTAMP_PATTERN = /\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/;
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3.5);
+}
 
-/** Strip markdown fences, commentary, and any lines that don't look like log entries */
+/** Strip markdown fences and non-log lines */
 function sanitizeLlmOutput(text: string): string {
   return text
-    .replace(/```[\w]*\n?/g, '')  // remove code fences
+    .replace(/```[\w]*\n?/g, '')
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l.length > 0 && TIMESTAMP_PATTERN.test(l))  // only keep lines with timestamps
+    .filter((l) => l.length > 0 && TIMESTAMP_PATTERN.test(l))
     .join('\n');
+}
+
+/** Sort lines chronologically by timestamp */
+function sortChronologically(text: string): string {
+  return text
+    .split('\n')
+    .filter((l) => l.trim().length > 0)
+    .sort((a, b) => {
+      const tA = a.match(/\[(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})\]/)?.[1] ?? '';
+      const tB = b.match(/\[(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})\]/)?.[1] ?? '';
+      return tA.localeCompare(tB);
+    })
+    .join('\n');
+}
+
+/** Trim to token budget by removing WARN lines first, then ERRO */
+function trimToTokenBudget(text: string, budget: number): string {
+  const lines = text.split('\n').filter((l) => l.trim().length > 0);
+  // Remove duplicate lines
+  const unique = [...new Set(lines)];
+
+  while (estimateTokens(unique.join('\n')) > budget && unique.length > 0) {
+    // Find last WARN line to remove
+    const warnIdx = unique.findLastIndex((l) => l.includes('[WARN]'));
+    if (warnIdx >= 0) {
+      unique.splice(warnIdx, 1);
+    } else {
+      // Remove last ERRO line
+      const erroIdx = unique.findLastIndex((l) => l.includes('[ERRO]'));
+      if (erroIdx >= 0) {
+        unique.splice(erroIdx, 1);
+      } else {
+        unique.pop();
+      }
+    }
+  }
+  return unique.join('\n');
 }
 
 export async function downloadLog(): Promise<string> {
@@ -75,25 +111,17 @@ function groupBySubsystem(lines: string[]): Map<string, SubsystemEntry> {
   return map;
 }
 
-/** Pick representative lines per subsystem: most severe first, limit per subsystem */
-function selectRepresentativeLines(subsystems: Map<string, SubsystemEntry>, maxLinesPerSub: number): string[] {
+/** Pick 1 most-severe line per subsystem */
+function pickOnePerSubsystem(subsystems: Map<string, SubsystemEntry>): string[] {
   const result: string[] = [];
-
-  // Sort subsystems: CRIT first, then ERRO, then WARN
-  const sorted = [...subsystems.values()].sort(
-    (a, b) => (SEVERITY_RANK[b.maxSeverity] ?? 0) - (SEVERITY_RANK[a.maxSeverity] ?? 0),
-  );
-
-  for (const sub of sorted) {
-    // Sort lines within subsystem by severity (most severe first)
-    const sortedLines = [...sub.lines].sort((a, b) => {
+  for (const sub of subsystems.values()) {
+    const best = [...sub.lines].sort((a, b) => {
       const sevA = a.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN';
       const sevB = b.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN';
       return (SEVERITY_RANK[sevB] ?? 0) - (SEVERITY_RANK[sevA] ?? 0);
-    });
-    result.push(...sortedLines.slice(0, maxLinesPerSub));
+    })[0];
+    if (best) result.push(best);
   }
-
   return result;
 }
 
@@ -116,73 +144,61 @@ async function submitToHub(logs: string): Promise<HubFeedback> {
 }
 
 export async function run(): Promise<string> {
-  // Step 1: Download
+  // Step 1: Download & filter
   const rawLog = await downloadLog();
-
-  // Step 2: Filter by severity
   const sevLines = filterBySeverity(rawLog);
 
-  // Step 3: Group by subsystem and analyze
+  // Step 2: Group by subsystem
   const subsystems = groupBySubsystem(sevLines);
-  console.log(`[s02e03] Found ${subsystems.size} unique subsystems`);
-  for (const [id, entry] of subsystems) {
-    console.log(`[s02e03]   ${id}: ${entry.lines.length} lines, max severity: ${entry.maxSeverity}`);
-  }
+  const subsystemIds = [...subsystems.keys()];
+  console.log(`[s02e03] Found ${subsystems.size} unique subsystems: ${subsystemIds.join(', ')}`);
 
-  // Step 4: Select representative lines — ensure ALL subsystems are covered
-  // Start with 3 lines per subsystem, adjust if over budget
-  let maxPerSub = 3;
-  let selected = selectRepresentativeLines(subsystems, maxPerSub);
-  while (estimateTokens(selected.join('\n')) > 4500 && maxPerSub > 1) {
-    maxPerSub--;
-    selected = selectRepresentativeLines(subsystems, maxPerSub);
-  }
-  console.log(`[s02e03] Selected ${selected.length} representative lines (${maxPerSub}/subsystem), ~${estimateTokens(selected.join('\n'))} tokens`);
+  // Step 3: Build baseline — 1 line per subsystem (guaranteed coverage)
+  const baseline = pickOnePerSubsystem(subsystems);
+  console.log(`[s02e03] Baseline: ${baseline.length} lines (1/subsystem), ~${estimateTokens(baseline.join('\n'))} tokens`);
 
-  // Step 5: Use LLM to compress selected lines into coherent summary
+  // Step 4: LLM compression — give it ALL severity lines but ask for tight output
+  // Include the baseline subsystem list so it knows what to cover
   const compressed = await ask(
-    `Analyze these power plant log entries and produce a condensed incident log.\n` +
-    `There are ${subsystems.size} subsystems — EVERY subsystem MUST appear in your output.\n\n` +
-    `Rules:\n` +
-    `- One line per event, format: [YYYY-MM-DD HH:MM] [LEVEL] SUBSYSTEM_ID brief description\n` +
-    `- Keep ALL subsystem IDs exactly as they appear (e.g. ${[...subsystems.keys()].join(', ')})\n` +
-    `- Include at least one line for EACH of the ${subsystems.size} subsystems\n` +
-    `- Prioritize CRIT events, then ERRO, then WARN\n` +
-    `- Keep chronological order within each subsystem\n` +
-    `- Keep total output under 1200 tokens\n` +
-    `- Output ONLY the compressed log lines, nothing else\n\n` +
-    `Log entries:\n${selected.join('\n')}`,
+    `Compress these power plant log entries into a condensed incident report.\n\n` +
+    `CRITICAL RULES:\n` +
+    `- Output format: YYYY-MM-DD HH:MM [LEVEL] SUBSYSTEM_ID brief_description\n` +
+    `- ALL ${subsystems.size} subsystems MUST appear: ${subsystemIds.join(', ')}\n` +
+    `- Strict chronological order by timestamp\n` +
+    `- Max 1-2 lines per subsystem, only the most critical events\n` +
+    `- Keep descriptions very short (5-10 words max)\n` +
+    `- Total output must be under 40 lines\n` +
+    `- NO markdown, NO code fences, NO commentary — ONLY log lines\n\n` +
+    `Log entries:\n${sevLines.join('\n')}`,
     {
       model: 'gpt-4o-mini',
       temperature: 0,
-      systemPrompt: 'You are a power plant log analyst. Output only compressed log lines, no commentary.',
+      systemPrompt: 'You are a log compressor. Output only log lines. No markdown. No commentary. No code fences.',
     },
   );
 
   let condensed = sanitizeLlmOutput(compressed);
-  console.log(`[s02e03] Compressed: ~${estimateTokens(condensed)} tokens, ${condensed.split('\n').length} lines`);
+  console.log(`[s02e03] LLM compressed: ~${estimateTokens(condensed)} tokens, ${condensed.split('\n').length} lines`);
 
-  // Verify all subsystems are present
-  const missingInOutput = [...subsystems.keys()].filter((id) => !condensed.includes(id));
-  if (missingInOutput.length > 0) {
-    console.log(`[s02e03] WARNING: Missing subsystems in compressed output: ${missingInOutput.join(', ')}`);
-    // Add missing subsystems manually — take the most severe line for each
-    for (const id of missingInOutput) {
+  // Step 5: Patch missing subsystems with raw lines from baseline
+  const missingAfterLlm = subsystemIds.filter((id) => !condensed.includes(id));
+  if (missingAfterLlm.length > 0) {
+    console.log(`[s02e03] Patching ${missingAfterLlm.length} missing subsystems: ${missingAfterLlm.join(', ')}`);
+    for (const id of missingAfterLlm) {
       const entry = subsystems.get(id);
       if (entry) {
-        const mostSevere = entry.lines.sort(
-          (a, b) => (SEVERITY_RANK[b.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0)
-                   - (SEVERITY_RANK[a.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0),
-        )[0];
-        if (mostSevere) {
-          condensed += '\n' + mostSevere;
-        }
+        const best = baseline.find((l) => l.includes(id));
+        if (best) condensed += '\n' + best;
       }
     }
-    console.log(`[s02e03] After patching: ~${estimateTokens(condensed)} tokens`);
   }
 
-  // Step 6: Submit and iterate
+  // Step 6: Sort chronologically and trim to budget
+  condensed = sortChronologically(condensed);
+  condensed = trimToTokenBudget(condensed, TOKEN_BUDGET);
+  console.log(`[s02e03] Final: ~${estimateTokens(condensed)} tokens, ${condensed.split('\n').length} lines`);
+
+  // Step 7: Submit and iterate
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     console.log(`[s02e03] Submission attempt ${i + 1}/${MAX_ITERATIONS}`);
     const result = await submitToHub(condensed);
@@ -195,48 +211,33 @@ export async function run(): Promise<string> {
 
     console.log(`[s02e03] No flag — feedback: ${result.message}`);
 
-    // Extract mentioned missing subsystem from feedback
+    // Handle "what happened to X" feedback
     const missingSubMatch = result.message.match(/what happened to (\S+)/i);
     const missingSubId = missingSubMatch?.[1]?.replace(/[.,!?]+$/, '');
 
     if (missingSubId) {
-      console.log(`[s02e03] Feedback mentions missing subsystem: ${missingSubId}`);
-      // Find all lines for this subsystem from original data
+      console.log(`[s02e03] Adding missing subsystem: ${missingSubId}`);
       const subLines = sevLines.filter((l) => l.includes(missingSubId));
-      console.log(`[s02e03] Found ${subLines.length} lines for ${missingSubId} in original data`);
-
       if (subLines.length > 0) {
-        // Add the most important lines for this subsystem
-        const toAdd = subLines
-          .sort((a, b) => (SEVERITY_RANK[b.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0)
-                        - (SEVERITY_RANK[a.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0))
-          .slice(0, 3);
-        condensed += '\n' + toAdd.join('\n');
-        console.log(`[s02e03] Added ${toAdd.length} lines for ${missingSubId}`);
+        const best = subLines.sort((a, b) =>
+          (SEVERITY_RANK[b.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0)
+          - (SEVERITY_RANK[a.match(/\[(CRIT|ERRO|WARN)\]/)?.[1] ?? 'WARN'] ?? 0)
+        )[0]!;
+        condensed += '\n' + best;
       } else {
-        // Search in ALL lines (including INFO)
         const allLines = rawLog.split('\n').filter((l) => l.includes(missingSubId));
-        console.log(`[s02e03] Found ${allLines.length} lines for ${missingSubId} in ALL log data`);
-        if (allLines.length > 0) {
-          condensed += '\n' + allLines.slice(0, 3).join('\n');
-        }
+        if (allLines.length > 0) condensed += '\n' + allLines[0]!;
       }
-    } else {
-      // General feedback — use LLM to refine
-      console.log(`[s02e03] General feedback, using LLM to refine...`);
-      const refined = await ask(
-        `Feedback from the system: "${result.message}"\n\n` +
-        `Current logs:\n${condensed}\n\n` +
-        `All subsystem IDs that must be present: ${[...subsystems.keys()].join(', ')}\n\n` +
-        `Improve the log based on feedback. Keep format: [YYYY-MM-DD HH:MM] [LEVEL] SUBSYSTEM_ID description\n` +
-        `Ensure ALL subsystems are covered. Output ONLY log lines, no markdown fences, no commentary.`,
-        {
-          model: 'gpt-4o-mini',
-          temperature: 0,
-          systemPrompt: 'You are a power plant log analyst. Output only compressed log lines. Never use markdown code fences.',
-        },
-      );
-      condensed = sanitizeLlmOutput(refined);
+      // Re-sort and trim
+      condensed = sortChronologically(condensed);
+      condensed = trimToTokenBudget(condensed, TOKEN_BUDGET);
+    } else if (result.message.includes('chronological order')) {
+      // Re-sort
+      condensed = sortChronologically(condensed);
+    } else if (result.message.includes('compression') || result.message.includes('context window')) {
+      // Too long — trim harder
+      condensed = trimToTokenBudget(condensed, TOKEN_BUDGET - 200);
+      console.log(`[s02e03] Trimmed to ~${estimateTokens(condensed)} tokens`);
     }
 
     console.log(`[s02e03] Updated: ~${estimateTokens(condensed)} tokens, ${condensed.split('\n').length} lines`);
