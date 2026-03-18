@@ -1,9 +1,10 @@
 import { fileURLToPath } from 'url';
-import { config, resilientFetch, submitAnswer, ask } from '@ai-devs-4/general';
+import { config, resilientFetch, ask } from '@ai-devs-4/general';
 
 export const TASK = 'failure';
 
 const LOG_URL = `https://hub.ag3nts.org/data/${config.AIDEVS_API_KEY}/failure.log`;
+const HUB_URL = 'https://hub.ag3nts.org/verify';
 
 const SEVERITY_PATTERN = /\[(CRIT|ERRO|WARN)\]/i;
 
@@ -11,6 +12,13 @@ const MAX_ITERATIONS = 5;
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 3.5);
+}
+
+interface HubFeedback {
+  code: number;
+  message: string;
+  tokenCount?: number;
+  lineCount?: number;
 }
 
 export async function downloadLog(): Promise<string> {
@@ -24,23 +32,6 @@ export function filterBySeverity(rawLog: string): string[] {
   const lines = rawLog.split('\n').filter((l) => l.trim().length > 0);
   const filtered = lines.filter((line) => SEVERITY_PATTERN.test(line));
   console.log(`[s02e03] Severity filter: ${lines.length} → ${filtered.length} lines`);
-  return filtered;
-}
-
-export function filterByKeywords(lines: string[]): string[] {
-  const keywords = [
-    'coolant', 'pump', 'power', 'reactor', 'temp', 'pressure',
-    'cooling', 'water', 'generator', 'turbine', 'valve', 'trip',
-    'shutdown', 'overload', 'voltage', 'frequency', 'fuel', 'rod',
-    'containment', 'steam', 'condenser', 'feedwater', 'boron',
-    'neutron', 'scram', 'emergency', 'backup', 'diesel', 'battery',
-    'transformer', 'breaker', 'grid', 'load', 'sensor', 'alarm',
-    'interlock', 'protection', 'runaway', 'leak', 'rupture',
-    'radiation', 'dose', 'vent', 'blowdown', 'meltdown',
-  ];
-  const pattern = new RegExp(keywords.join('|'), 'i');
-  const filtered = lines.filter((line) => pattern.test(line));
-  console.log(`[s02e03] Keyword filter: ${lines.length} → ${filtered.length} lines`);
   return filtered;
 }
 
@@ -58,11 +49,11 @@ export async function compressLogs(lines: string[]): Promise<string> {
   const compressed = await ask(
     `Compress these power plant log entries to fit within 1400 tokens. Rules:\n` +
     `- One line per event, format: [YYYY-MM-DD HH:MM] [LEVEL] SUBSYSTEM_ID brief description\n` +
-    `- Preserve ALL timestamps, severity levels ([CRIT]/[WARN]/[ERRO]), and subsystem IDs\n` +
+    `- Preserve ALL timestamps, severity levels ([CRIT]/[WARN]/[ERRO]), and ALL subsystem IDs exactly as they appear (e.g. WTRPMP, ECCS, PWR01, WTANK, etc.)\n` +
+    `- Every unique subsystem ID in the input MUST appear at least once in the output\n` +
     `- Shorten descriptions to essential meaning — remove verbose details\n` +
     `- Group repeated similar events — keep first occurrence and most severe\n` +
     `- Prioritize: CRIT > ERRO > WARN\n` +
-    `- Cover ALL subsystems present in the data\n` +
     `- Output ONLY the compressed log lines, nothing else\n\n` +
     `Log entries:\n${joined}`,
     {
@@ -76,33 +67,53 @@ export async function compressLogs(lines: string[]): Promise<string> {
   return compressed;
 }
 
-export async function submitLogs(logs: string): Promise<{ message: string; code: number }> {
-  const result = await submitAnswer({
+async function submitToHub(logs: string): Promise<HubFeedback> {
+  const body = {
+    apikey: config.AIDEVS_API_KEY,
     task: TASK,
     answer: { logs },
+  };
+
+  const res = await fetch(HUB_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-  return result;
+
+  const data = (await res.json()) as HubFeedback;
+  console.log(`[s02e03] Hub response (${res.status}):`, JSON.stringify(data));
+  return data;
+}
+
+function trimToTokenBudget(text: string, budget: number): string {
+  const lines = text.split('\n');
+  while (estimateTokens(lines.join('\n')) > budget && lines.length > 0) {
+    const warnIdx = lines.findLastIndex((l) => l.includes('[WARN]'));
+    if (warnIdx >= 0) {
+      lines.splice(warnIdx, 1);
+    } else {
+      lines.pop();
+    }
+  }
+  return lines.join('\n');
 }
 
 export async function run(): Promise<string> {
   // Step 1: Download
   const rawLog = await downloadLog();
 
-  // Step 2: Filter by severity
+  // Step 2: Filter by severity (no keyword filter — keep all WARN/ERRO/CRIT)
   const sevLines = filterBySeverity(rawLog);
 
-  // Step 3: Filter by keywords
-  const kwLines = filterByKeywords(sevLines);
-
-  // Step 4: Compress
-  let condensed = await compressLogs(kwLines);
+  // Step 3: Compress
+  let condensed = await compressLogs(sevLines);
+  condensed = trimToTokenBudget(condensed, 1400);
   console.log(`[s02e03] Final token estimate: ~${estimateTokens(condensed)}`);
 
-  // Step 5: Submit and iterate
+  // Step 4: Submit and iterate
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     console.log(`[s02e03] Submission attempt ${i + 1}/${MAX_ITERATIONS}`);
-    const result = await submitLogs(condensed);
-    console.log(`[s02e03] Hub response: ${result.message}`);
+    const result = await submitToHub(condensed);
 
     const flagMatch = result.message.match(/\{FLG:[^}]+\}/);
     if (flagMatch) {
@@ -111,14 +122,17 @@ export async function run(): Promise<string> {
     }
 
     // Parse feedback and enhance logs
-    console.log(`[s02e03] No flag yet, attempting to improve based on feedback...`);
+    console.log(`[s02e03] No flag — feedback: ${result.message}`);
+    console.log(`[s02e03] Enhancing based on feedback...`);
+
     const enhanced = await ask(
       `The power plant log analysis system returned this feedback:\n"${result.message}"\n\n` +
       `Current condensed logs:\n${condensed}\n\n` +
-      `Full filtered log entries (WARN/ERRO/CRIT with power plant keywords):\n${sevLines.join('\n')}\n\n` +
+      `Full severity-filtered log entries (all WARN/ERRO/CRIT from the original file):\n${sevLines.join('\n')}\n\n` +
       `Based on the feedback, produce an improved condensed log. Rules:\n` +
       `- One line per event: [YYYY-MM-DD HH:MM] [LEVEL] SUBSYSTEM_ID brief description\n` +
-      `- Add missing subsystem events mentioned in the feedback\n` +
+      `- The feedback says which subsystems are missing — find their entries in the full log and ADD them\n` +
+      `- Preserve ALL subsystem IDs exactly as they appear in the original logs\n` +
       `- Keep total under 1400 tokens\n` +
       `- Prioritize CRIT > ERRO > WARN\n` +
       `- Output ONLY the log lines, nothing else`,
@@ -129,25 +143,8 @@ export async function run(): Promise<string> {
       },
     );
 
-    const newTokens = estimateTokens(enhanced);
-    console.log(`[s02e03] Enhanced logs: ~${newTokens} tokens`);
-
-    if (newTokens <= 1500) {
-      condensed = enhanced;
-    } else {
-      console.log(`[s02e03] Enhanced version too long (${newTokens} tokens), trimming...`);
-      const trimLines = enhanced.split('\n');
-      while (estimateTokens(trimLines.join('\n')) > 1400 && trimLines.length > 0) {
-        // Remove last WARN line if possible
-        const warnIdx = trimLines.findLastIndex((l) => l.includes('[WARN]'));
-        if (warnIdx >= 0) {
-          trimLines.splice(warnIdx, 1);
-        } else {
-          trimLines.pop();
-        }
-      }
-      condensed = trimLines.join('\n');
-    }
+    condensed = trimToTokenBudget(enhanced, 1400);
+    console.log(`[s02e03] Enhanced logs: ~${estimateTokens(condensed)} tokens, ${condensed.split('\n').length} lines`);
   }
 
   return 'Max iterations reached without flag';
