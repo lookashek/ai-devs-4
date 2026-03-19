@@ -13,18 +13,20 @@ const LOG_PREFIX = '[mailbox]';
 // --- Zod schemas (lenient with passthrough) ---
 
 const MailItemSchema = z.object({
-  id: z.string(),
+  messageID: z.string(),
   subject: z.string().optional(),
   from: z.string().optional(),
   date: z.string().optional(),
+  snippet: z.string().optional(),
 }).passthrough();
 
 const MailMessageSchema = z.object({
-  id: z.string(),
+  messageID: z.string(),
   subject: z.string().optional(),
   from: z.string().optional(),
   date: z.string().optional(),
   body: z.string().optional(),
+  content: z.string().optional(),
 }).passthrough();
 
 type MailItem = z.infer<typeof MailItemSchema>;
@@ -78,7 +80,7 @@ export async function searchMail(query: string, page?: number): Promise<MailItem
 }
 
 export async function getMessage(messageId: string): Promise<MailMessage> {
-  const result = await zmailRequest('getMessage', { id: messageId });
+  const result = await zmailRequest('getMessage', { messageID: messageId });
   return parseMailMessage(result);
 }
 
@@ -89,8 +91,8 @@ function parseMailList(data: unknown): MailItem[] {
 
   const obj = data as Record<string, unknown>;
 
-  // Try common response shapes: { messages: [...] }, { data: [...] }, { emails: [...] }, or array directly
-  const candidates = [obj['messages'], obj['data'], obj['emails'], obj['inbox'], obj['results']];
+  // Try common response shapes — API returns { items: [...] }
+  const candidates = [obj['items'], obj['messages'], obj['data'], obj['emails'], obj['inbox'], obj['results']];
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
       return candidate.map((item) => MailItemSchema.parse(item));
@@ -114,7 +116,7 @@ function parseMailMessage(data: unknown): MailMessage {
   const obj = data as Record<string, unknown>;
 
   // Try common shapes: { message: {...} }, { data: {...} }, or the object itself
-  const candidates = [obj['message'], obj['data'], obj['email']];
+  const candidates = [obj['message'], obj['data'], obj['email'], obj['item']];
   for (const candidate of candidates) {
     if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
       return MailMessageSchema.parse(candidate);
@@ -122,12 +124,12 @@ function parseMailMessage(data: unknown): MailMessage {
   }
 
   // Maybe the response itself is the message
-  if ('id' in obj || 'body' in obj || 'subject' in obj) {
+  if ('messageID' in obj || 'body' in obj || 'content' in obj || 'subject' in obj) {
     return MailMessageSchema.parse(data);
   }
 
   console.log(`${LOG_PREFIX} Could not parse message from:`, JSON.stringify(data).substring(0, 500));
-  return MailMessageSchema.parse({ id: 'unknown', body: JSON.stringify(data) });
+  return MailMessageSchema.parse({ messageID: 'unknown', body: JSON.stringify(data) });
 }
 
 // --- Extraction helpers ---
@@ -215,15 +217,9 @@ function extractAllValues(text: string, found: FoundData): void {
 async function searchAndExtract(found: FoundData): Promise<void> {
   const queries = [
     'from:proton.me',
-    'subject:security',
-    'subject:password',
     'subject:hasło',
     'SEC-',
-    'subject:atak',
-    'subject:attack',
     'subject:ticket',
-    'subject:confirmation',
-    'password',
     'hasło',
     'confirmation',
   ];
@@ -240,16 +236,16 @@ async function searchAndExtract(found: FoundData): Promise<void> {
       console.log(`${LOG_PREFIX} Found ${items.length} results for "${query}"`);
 
       for (const item of items) {
-        if (readMessageIds.has(item.id)) continue;
-        readMessageIds.add(item.id);
+        if (readMessageIds.has(item.messageID)) continue;
+        readMessageIds.add(item.messageID);
 
-        console.log(`${LOG_PREFIX} Reading message ${item.id}: "${item.subject}" from ${item.from}`);
+        console.log(`${LOG_PREFIX} Reading message ${item.messageID}: "${item.subject}" from ${item.from}`);
         try {
-          const msg = await getMessage(item.id);
-          const fullText = [msg.subject ?? '', msg.from ?? '', msg.body ?? ''].join('\n');
+          const msg = await getMessage(item.messageID);
+          const fullText = [msg.subject ?? '', msg.from ?? '', msg.body ?? msg.content ?? ''].join('\n');
           extractAllValues(fullText, found);
         } catch (err) {
-          console.error(`${LOG_PREFIX} Error reading message ${item.id}:`, err);
+          console.error(`${LOG_PREFIX} Error reading message ${item.messageID}:`, err);
         }
       }
     } catch (err) {
@@ -271,15 +267,15 @@ async function searchAndExtract(found: FoundData): Promise<void> {
         console.log(`${LOG_PREFIX} Inbox page ${page}: ${items.length} messages`);
 
         for (const item of items) {
-          if (readMessageIds.has(item.id)) continue;
-          readMessageIds.add(item.id);
+          if (readMessageIds.has(item.messageID)) continue;
+          readMessageIds.add(item.messageID);
 
           try {
-            const msg = await getMessage(item.id);
-            const fullText = [msg.subject ?? '', msg.from ?? '', msg.body ?? ''].join('\n');
+            const msg = await getMessage(item.messageID);
+            const fullText = [msg.subject ?? '', msg.from ?? '', msg.body ?? msg.content ?? ''].join('\n');
             extractAllValues(fullText, found);
           } catch (err) {
-            console.error(`${LOG_PREFIX} Error reading message ${item.id}:`, err);
+            console.error(`${LOG_PREFIX} Error reading message ${item.messageID}:`, err);
           }
         }
 
@@ -315,7 +311,16 @@ export async function main(): Promise<string> {
 
     console.log(`${LOG_PREFIX} Current state:`, JSON.stringify(found));
 
-    // Submit whatever we have
+    // Only submit when at least one value is found
+    if (!found.date && !found.password && !found.confirmation_code) {
+      console.log(`${LOG_PREFIX} No values found yet, skipping submission`);
+      if (attempt < MAX_RETRIES) {
+        console.log(`${LOG_PREFIX} Waiting ${RETRY_DELAY_MS}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+      continue;
+    }
+
     const answer = {
       date: found.date ?? '',
       password: found.password ?? '',
