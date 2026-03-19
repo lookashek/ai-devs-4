@@ -9,6 +9,11 @@ const MAX_RETRIES = 10;
 const RETRY_DELAY_MS = 5000;
 
 const LOG_PREFIX = '[mailbox]';
+const API_CALL_DELAY_MS = 800;
+
+// Will be set dynamically from help response
+let readMessageAction = 'readMessage'; // default guess
+let readMessageParamName = 'messageID'; // default guess
 
 // --- Zod schemas (lenient with passthrough) ---
 
@@ -61,7 +66,41 @@ export async function zmailRequest(action: string, params?: Record<string, unkno
 
 export async function getHelp(): Promise<unknown> {
   const result = await zmailRequest('help');
-  console.log(`${LOG_PREFIX} Help response:`, JSON.stringify(result, null, 2));
+  const fullJson = JSON.stringify(result, null, 2);
+  console.log(`${LOG_PREFIX} Help response (full):`, fullJson);
+
+  // Parse available actions to find the correct "read message" action
+  if (result && typeof result === 'object') {
+    const obj = result as Record<string, unknown>;
+    const actions = obj['actions'] as Record<string, unknown> | undefined;
+    if (actions) {
+      console.log(`${LOG_PREFIX} Available actions: ${Object.keys(actions).join(', ')}`);
+      for (const [actionName, actionDef] of Object.entries(actions)) {
+        const desc = (actionDef as Record<string, unknown>)?.['description'] as string ?? '';
+        const descLower = desc.toLowerCase();
+        // Look for action that reads a single message body
+        if (descLower.includes('body') || descLower.includes('read') ||
+            (descLower.includes('message') && !descLower.includes('list') && actionName !== 'search')) {
+          readMessageAction = actionName;
+          console.log(`${LOG_PREFIX} Detected read-message action: "${actionName}" — ${desc}`);
+
+          // Try to detect the param name from action params
+          const params = (actionDef as Record<string, unknown>)?.['params'] as Record<string, unknown> | undefined;
+          if (params) {
+            const paramKeys = Object.keys(params);
+            console.log(`${LOG_PREFIX} Action "${actionName}" params: ${paramKeys.join(', ')}`);
+            const idParam = paramKeys.find((k) => k.toLowerCase().includes('id') || k.toLowerCase().includes('message'));
+            if (idParam && idParam !== 'action') {
+              readMessageParamName = idParam;
+              console.log(`${LOG_PREFIX} Detected message param name: "${idParam}"`);
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+
   return result;
 }
 
@@ -79,8 +118,13 @@ export async function searchMail(query: string, page?: number): Promise<MailItem
   return parseMailList(result);
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function getMessage(messageId: string): Promise<MailMessage> {
-  const result = await zmailRequest('getMessage', { messageID: messageId });
+  await delay(API_CALL_DELAY_MS);
+  const result = await zmailRequest(readMessageAction, { [readMessageParamName]: messageId });
   return parseMailMessage(result);
 }
 
@@ -114,6 +158,12 @@ function parseMailMessage(data: unknown): MailMessage {
   }
 
   const obj = data as Record<string, unknown>;
+
+  // Detect if API returned the help response (wrong action name)
+  if (obj['actions'] || (typeof obj['description'] === 'string' && obj['description'].toString().includes('API'))) {
+    console.error(`${LOG_PREFIX} API returned help response instead of message — action "${readMessageAction}" is invalid!`);
+    throw new Error(`Invalid action "${readMessageAction}" — API returned help instead of message`);
+  }
 
   // Try common shapes: { message: {...} }, { data: {...} }, or the object itself
   const candidates = [obj['message'], obj['data'], obj['email'], obj['item']];
@@ -236,8 +286,15 @@ async function searchAndExtract(found: FoundData): Promise<void> {
       console.log(`${LOG_PREFIX} Found ${items.length} results for "${query}"`);
 
       for (const item of items) {
+        // Extract from snippet/subject/from first (no extra API call)
+        const snippetText = [item.subject ?? '', item.from ?? '', item.snippet ?? ''].join('\n');
+        extractAllValues(snippetText, found);
+
         if (readMessageIds.has(item.messageID)) continue;
         readMessageIds.add(item.messageID);
+
+        // Skip full message read if all values already found
+        if (found.date && found.password && found.confirmation_code) break;
 
         console.log(`${LOG_PREFIX} Reading message ${item.messageID}: "${item.subject}" from ${item.from}`);
         try {
@@ -251,6 +308,9 @@ async function searchAndExtract(found: FoundData): Promise<void> {
     } catch (err) {
       console.error(`${LOG_PREFIX} Error searching "${query}":`, err);
     }
+
+    // Rate limit between search queries
+    await delay(API_CALL_DELAY_MS);
   }
 
   // If still missing values, try reading the full inbox
@@ -267,8 +327,14 @@ async function searchAndExtract(found: FoundData): Promise<void> {
         console.log(`${LOG_PREFIX} Inbox page ${page}: ${items.length} messages`);
 
         for (const item of items) {
+          // Extract from metadata first
+          const snippetText = [item.subject ?? '', item.from ?? '', item.snippet ?? ''].join('\n');
+          extractAllValues(snippetText, found);
+
           if (readMessageIds.has(item.messageID)) continue;
           readMessageIds.add(item.messageID);
+
+          if (found.date && found.password && found.confirmation_code) break;
 
           try {
             const msg = await getMessage(item.messageID);
@@ -294,8 +360,7 @@ export async function main(): Promise<string> {
   const helpResult = await getHelp();
 
   // Adapt action names based on help response if needed
-  const helpStr = JSON.stringify(helpResult);
-  console.log(`${LOG_PREFIX} API help summary: ${helpStr.substring(0, 500)}`);
+  console.log(`${LOG_PREFIX} Read-message action: "${readMessageAction}", param: "${readMessageParamName}"`);
 
   const found: FoundData = {
     date: undefined,
