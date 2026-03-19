@@ -12,8 +12,8 @@ const LOG_PREFIX = '[mailbox]';
 const API_CALL_DELAY_MS = 800;
 
 // Will be set dynamically from help response
-let readMessageAction = 'readMessage'; // default guess
-let readMessageParamName = 'messageID'; // default guess
+let readMessageAction = 'getMessages'; // from help response
+let readMessageParamName = 'ids'; // from help response
 
 // --- Zod schemas (lenient with passthrough) ---
 
@@ -264,7 +264,7 @@ function extractAllValues(text: string, found: FoundData): void {
 
 // --- Main agent loop ---
 
-async function searchAndExtract(found: FoundData): Promise<void> {
+async function searchAndExtract(found: FoundData, readMessageIds: Set<string>): Promise<void> {
   const queries = [
     'from:proton.me',
     'subject:hasło',
@@ -273,8 +273,6 @@ async function searchAndExtract(found: FoundData): Promise<void> {
     'hasło',
     'confirmation',
   ];
-
-  const readMessageIds = new Set<string>();
 
   for (const query of queries) {
     // Skip if all values already found
@@ -368,11 +366,20 @@ export async function main(): Promise<string> {
     confirmation_code: undefined,
   };
 
+  const readMessageIds = new Set<string>();
+
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     console.log(`${LOG_PREFIX} === Attempt ${attempt}/${MAX_RETRIES} ===`);
 
+    // Reset rate limiter on retries to recover from 429 cascades
+    if (attempt > 1) {
+      console.log(`${LOG_PREFIX} Calling reset to clear rate limit counter...`);
+      await zmailRequest('reset');
+      await delay(1000);
+    }
+
     // Search and extract values
-    await searchAndExtract(found);
+    await searchAndExtract(found, readMessageIds);
 
     console.log(`${LOG_PREFIX} Current state:`, JSON.stringify(found));
 
