@@ -11,9 +11,9 @@ const RETRY_DELAY_MS = 5000;
 const LOG_PREFIX = '[mailbox]';
 const API_CALL_DELAY_MS = 800;
 
-// Will be set dynamically from help response
-let readMessageAction = 'getMessages'; // from help response
-let readMessageParamName = 'ids'; // from help response
+// Hardcoded from help response — no dynamic detection
+const READ_MESSAGE_ACTION = 'getMessages';
+const READ_MESSAGE_PARAM = 'ids';
 
 // --- Zod schemas (lenient with passthrough) ---
 
@@ -66,41 +66,7 @@ export async function zmailRequest(action: string, params?: Record<string, unkno
 
 export async function getHelp(): Promise<unknown> {
   const result = await zmailRequest('help');
-  const fullJson = JSON.stringify(result, null, 2);
-  console.log(`${LOG_PREFIX} Help response (full):`, fullJson);
-
-  // Parse available actions to find the correct "read message" action
-  if (result && typeof result === 'object') {
-    const obj = result as Record<string, unknown>;
-    const actions = obj['actions'] as Record<string, unknown> | undefined;
-    if (actions) {
-      console.log(`${LOG_PREFIX} Available actions: ${Object.keys(actions).join(', ')}`);
-      for (const [actionName, actionDef] of Object.entries(actions)) {
-        const desc = (actionDef as Record<string, unknown>)?.['description'] as string ?? '';
-        const descLower = desc.toLowerCase();
-        // Look for action that reads a single message body
-        if (descLower.includes('body') || descLower.includes('read') ||
-            (descLower.includes('message') && !descLower.includes('list') && actionName !== 'search')) {
-          readMessageAction = actionName;
-          console.log(`${LOG_PREFIX} Detected read-message action: "${actionName}" — ${desc}`);
-
-          // Try to detect the param name from action params
-          const params = (actionDef as Record<string, unknown>)?.['params'] as Record<string, unknown> | undefined;
-          if (params) {
-            const paramKeys = Object.keys(params);
-            console.log(`${LOG_PREFIX} Action "${actionName}" params: ${paramKeys.join(', ')}`);
-            const idParam = paramKeys.find((k) => k.toLowerCase().includes('id') || k.toLowerCase().includes('message'));
-            if (idParam && idParam !== 'action') {
-              readMessageParamName = idParam;
-              console.log(`${LOG_PREFIX} Detected message param name: "${idParam}"`);
-            }
-          }
-          break;
-        }
-      }
-    }
-  }
-
+  console.log(`${LOG_PREFIX} Help response:`, JSON.stringify(result, null, 2));
   return result;
 }
 
@@ -124,7 +90,7 @@ function delay(ms: number): Promise<void> {
 
 export async function getMessage(messageId: string): Promise<MailMessage> {
   await delay(API_CALL_DELAY_MS);
-  const result = await zmailRequest(readMessageAction, { [readMessageParamName]: messageId });
+  const result = await zmailRequest(READ_MESSAGE_ACTION, { [READ_MESSAGE_PARAM]: messageId });
   return parseMailMessage(result);
 }
 
@@ -161,8 +127,8 @@ function parseMailMessage(data: unknown): MailMessage {
 
   // Detect if API returned the help response (wrong action name)
   if (obj['actions'] || (typeof obj['description'] === 'string' && obj['description'].toString().includes('API'))) {
-    console.error(`${LOG_PREFIX} API returned help response instead of message — action "${readMessageAction}" is invalid!`);
-    throw new Error(`Invalid action "${readMessageAction}" — API returned help instead of message`);
+    console.error(`${LOG_PREFIX} API returned help response instead of message — action "${READ_MESSAGE_ACTION}" is invalid!`);
+    throw new Error(`Invalid action "${READ_MESSAGE_ACTION}" — API returned help instead of message`);
   }
 
   // Try common shapes: { message: {...} }, { data: {...} }, or the object itself
@@ -357,8 +323,7 @@ export async function main(): Promise<string> {
   // Step 1: Discover API
   const helpResult = await getHelp();
 
-  // Adapt action names based on help response if needed
-  console.log(`${LOG_PREFIX} Read-message action: "${readMessageAction}", param: "${readMessageParamName}"`);
+  console.log(`${LOG_PREFIX} Using action: "${READ_MESSAGE_ACTION}", param: "${READ_MESSAGE_PARAM}"`);
 
   const found: FoundData = {
     date: undefined,
