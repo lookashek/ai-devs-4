@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
-import { config, resilientFetch, submitAnswer } from '@ai-devs-4/general';
+import { config, resilientFetch, submitAnswer, ask } from '@ai-devs-4/general';
 
 export const TASK = 'mailbox';
 
@@ -32,6 +32,7 @@ const MailMessageSchema = z.object({
   date: z.string().optional(),
   body: z.string().optional(),
   content: z.string().optional(),
+  message: z.string().optional(),
 }).passthrough();
 
 type MailItem = z.infer<typeof MailItemSchema>;
@@ -131,8 +132,13 @@ function parseMailMessage(data: unknown): MailMessage {
     throw new Error(`Invalid action "${READ_MESSAGE_ACTION}" — API returned help instead of message`);
   }
 
+  // getMessages returns { items: [{...message...}] }
+  if (Array.isArray(obj['items']) && (obj['items'] as unknown[]).length > 0) {
+    return MailMessageSchema.parse((obj['items'] as unknown[])[0]);
+  }
+
   // Try common shapes: { message: {...} }, { data: {...} }, or the object itself
-  const candidates = [obj['message'], obj['data'], obj['email'], obj['item']];
+  const candidates = [obj['data'], obj['email'], obj['item']];
   for (const candidate of candidates) {
     if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
       return MailMessageSchema.parse(candidate);
@@ -148,85 +154,47 @@ function parseMailMessage(data: unknown): MailMessage {
   return MailMessageSchema.parse({ messageID: 'unknown', body: JSON.stringify(data) });
 }
 
-// --- Extraction helpers ---
+// --- LLM-based extraction ---
 
-export function extractDate(text: string): string | undefined {
-  // Look for YYYY-MM-DD patterns
-  const matches = text.match(/\b(\d{4}-\d{2}-\d{2})\b/g);
-  if (!matches) return undefined;
+const EXTRACT_SYSTEM_PROMPT = `You extract structured data from emails. Return ONLY valid JSON, no markdown fences, no explanation.
+If a value is not present in the text, omit it from the JSON.`;
 
-  // If only one date, return it
-  if (matches.length === 1) return matches[0];
+async function extractWithLLM(text: string, found: FoundData): Promise<void> {
+  const missing: string[] = [];
+  if (!found.date) missing.push('- date: the date (YYYY-MM-DD) when the security department plans to attack/inspect the power plant. NOT the email send date.');
+  if (!found.password) missing.push('- password: a password or credential to the employee system. Should be a meaningful password string, not a common word.');
+  if (!found.confirmation_code) missing.push('- confirmation_code: a code starting with SEC- followed by hex characters (e.g. SEC-abc123...)');
 
-  // If multiple dates, prefer one near keywords about attack/plan
-  const attackKeywords = ['atak', 'attack', 'plan', 'elektrowni', 'power plant', 'operacja', 'operation', 'termin', 'data'];
-  const lines = text.split('\n');
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    if (attackKeywords.some((kw) => lower.includes(kw))) {
-      const dateMatch = line.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-      if (dateMatch) return dateMatch[1];
+  if (missing.length === 0) return;
+
+  const prompt = `Extract the following values from this email. Return a JSON object with only the found keys.\n\nValues to find:\n${missing.join('\n')}\n\nEmail:\n${text}`;
+
+  try {
+    const response = await ask(prompt, {
+      temperature: 0,
+      systemPrompt: EXTRACT_SYSTEM_PROMPT,
+    });
+
+    console.log(`${LOG_PREFIX} LLM extraction response: ${response}`);
+
+    // Strip markdown fences if present
+    const cleaned = response.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned) as Record<string, string>;
+
+    if (parsed['date'] && !found.date) {
+      console.log(`${LOG_PREFIX} LLM found date: ${parsed['date']}`);
+      found.date = parsed['date'];
     }
-  }
-
-  return matches[0];
-}
-
-export function extractPassword(text: string): string | undefined {
-  const passwordKeywords = ['hasło', 'haslo', 'password', 'credentials', 'login', 'pass:'];
-  const lines = text.split('\n');
-
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    for (const kw of passwordKeywords) {
-      if (lower.includes(kw)) {
-        // Try patterns like "hasło: value", "password is value", "hasło to value"
-        const patterns = [
-          // "hasło: value" or "hasło:value"
-          new RegExp(`${kw}\\s*:\\s*["\`']?([^\\s"'\`<>]+)["\`']?`, 'i'),
-          // "hasło to value", "hasło jest value", "hasło = value"
-          new RegExp(`${kw}\\s+(?:to|is|jest|=)\\s+["\`']?([^\\s"'\`<>]+)["\`']?`, 'i'),
-        ];
-        for (const pattern of patterns) {
-          const match = line.match(pattern);
-          if (match?.[1]) return match[1];
-        }
-      }
+    if (parsed['password'] && !found.password) {
+      console.log(`${LOG_PREFIX} LLM found password: ${parsed['password']}`);
+      found.password = parsed['password'];
     }
-  }
-
-  return undefined;
-}
-
-export function extractConfirmationCode(text: string): string | undefined {
-  // SEC- followed by 32 hex characters (36 total)
-  const match = text.match(/SEC-[a-f0-9]{32}/);
-  return match ? match[0] : undefined;
-}
-
-function extractAllValues(text: string, found: FoundData): void {
-  if (!found.date) {
-    const date = extractDate(text);
-    if (date) {
-      console.log(`${LOG_PREFIX} Found date: ${date}`);
-      found.date = date;
+    if (parsed['confirmation_code'] && !found.confirmation_code) {
+      console.log(`${LOG_PREFIX} LLM found confirmation_code: ${parsed['confirmation_code']}`);
+      found.confirmation_code = parsed['confirmation_code'];
     }
-  }
-
-  if (!found.password) {
-    const password = extractPassword(text);
-    if (password) {
-      console.log(`${LOG_PREFIX} Found password: ${password}`);
-      found.password = password;
-    }
-  }
-
-  if (!found.confirmation_code) {
-    const code = extractConfirmationCode(text);
-    if (code) {
-      console.log(`${LOG_PREFIX} Found confirmation_code: ${code}`);
-      found.confirmation_code = code;
-    }
+  } catch (err) {
+    console.error(`${LOG_PREFIX} LLM extraction error:`, err);
   }
 }
 
@@ -252,27 +220,18 @@ async function searchAndExtract(found: FoundData, readMessageIds: Set<string>): 
       console.log(`${LOG_PREFIX} Found ${items.length} results for "${query}"`);
 
       for (const item of items) {
-        // Only extract confirmation_code from snippets (password/date need full body)
-        if (!found.confirmation_code) {
-          const snippetText = [item.subject ?? '', item.snippet ?? ''].join('\n');
-          const code = extractConfirmationCode(snippetText);
-          if (code) {
-            console.log(`${LOG_PREFIX} Found confirmation_code from snippet: ${code}`);
-            found.confirmation_code = code;
-          }
-        }
-
         if (readMessageIds.has(item.messageID)) continue;
         readMessageIds.add(item.messageID);
 
-        // Skip full message read if all values already found
         if (found.date && found.password && found.confirmation_code) break;
 
         console.log(`${LOG_PREFIX} Reading message ${item.messageID}: "${item.subject}" from ${item.from}`);
         try {
           const msg = await getMessage(item.messageID);
-          const fullText = [msg.subject ?? '', msg.from ?? '', msg.body ?? msg.content ?? ''].join('\n');
-          extractAllValues(fullText, found);
+          const body = msg.message ?? msg.body ?? msg.content ?? '';
+          const fullText = `Subject: ${msg.subject ?? ''}\nFrom: ${msg.from ?? ''}\nBody: ${body}`;
+          console.log(`${LOG_PREFIX} Message body: ${body}`);
+          await extractWithLLM(fullText, found);
         } catch (err) {
           console.error(`${LOG_PREFIX} Error reading message ${item.messageID}:`, err);
         }
@@ -299,16 +258,6 @@ async function searchAndExtract(found: FoundData, readMessageIds: Set<string>): 
         console.log(`${LOG_PREFIX} Inbox page ${page}: ${items.length} messages`);
 
         for (const item of items) {
-          // Only extract confirmation_code from snippets
-          if (!found.confirmation_code) {
-            const snippetText = [item.subject ?? '', item.snippet ?? ''].join('\n');
-            const code = extractConfirmationCode(snippetText);
-            if (code) {
-              console.log(`${LOG_PREFIX} Found confirmation_code from snippet: ${code}`);
-              found.confirmation_code = code;
-            }
-          }
-
           if (readMessageIds.has(item.messageID)) continue;
           readMessageIds.add(item.messageID);
 
@@ -316,8 +265,10 @@ async function searchAndExtract(found: FoundData, readMessageIds: Set<string>): 
 
           try {
             const msg = await getMessage(item.messageID);
-            const fullText = [msg.subject ?? '', msg.from ?? '', msg.body ?? msg.content ?? ''].join('\n');
-            extractAllValues(fullText, found);
+            const body = msg.message ?? msg.body ?? msg.content ?? '';
+            const fullText = `Subject: ${msg.subject ?? ''}\nFrom: ${msg.from ?? ''}\nBody: ${body}`;
+            console.log(`${LOG_PREFIX} Message body: ${body}`);
+            await extractWithLLM(fullText, found);
           } catch (err) {
             console.error(`${LOG_PREFIX} Error reading message ${item.messageID}:`, err);
           }
