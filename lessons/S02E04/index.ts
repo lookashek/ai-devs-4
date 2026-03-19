@@ -182,7 +182,9 @@ export function extractPassword(text: string): string | undefined {
       if (lower.includes(kw)) {
         // Try patterns like "hasło: value", "password is value", "hasło to value"
         const patterns = [
-          new RegExp(`${kw}[:\\s]+["\`']?([^\\s"'\`<>]+)["\`']?`, 'i'),
+          // "hasło: value" or "hasło:value"
+          new RegExp(`${kw}\\s*:\\s*["\`']?([^\\s"'\`<>]+)["\`']?`, 'i'),
+          // "hasło to value", "hasło jest value", "hasło = value"
           new RegExp(`${kw}\\s+(?:to|is|jest|=)\\s+["\`']?([^\\s"'\`<>]+)["\`']?`, 'i'),
         ];
         for (const pattern of patterns) {
@@ -197,8 +199,8 @@ export function extractPassword(text: string): string | undefined {
 }
 
 export function extractConfirmationCode(text: string): string | undefined {
-  // SEC- followed by exactly 28 characters (32 total)
-  const match = text.match(/SEC-[A-Za-z0-9]{28}/);
+  // SEC- followed by 32 hex characters (36 total)
+  const match = text.match(/SEC-[a-f0-9]{32}/);
   return match ? match[0] : undefined;
 }
 
@@ -250,9 +252,15 @@ async function searchAndExtract(found: FoundData, readMessageIds: Set<string>): 
       console.log(`${LOG_PREFIX} Found ${items.length} results for "${query}"`);
 
       for (const item of items) {
-        // Extract from snippet/subject/from first (no extra API call)
-        const snippetText = [item.subject ?? '', item.from ?? '', item.snippet ?? ''].join('\n');
-        extractAllValues(snippetText, found);
+        // Only extract confirmation_code from snippets (password/date need full body)
+        if (!found.confirmation_code) {
+          const snippetText = [item.subject ?? '', item.snippet ?? ''].join('\n');
+          const code = extractConfirmationCode(snippetText);
+          if (code) {
+            console.log(`${LOG_PREFIX} Found confirmation_code from snippet: ${code}`);
+            found.confirmation_code = code;
+          }
+        }
 
         if (readMessageIds.has(item.messageID)) continue;
         readMessageIds.add(item.messageID);
@@ -291,9 +299,15 @@ async function searchAndExtract(found: FoundData, readMessageIds: Set<string>): 
         console.log(`${LOG_PREFIX} Inbox page ${page}: ${items.length} messages`);
 
         for (const item of items) {
-          // Extract from metadata first
-          const snippetText = [item.subject ?? '', item.from ?? '', item.snippet ?? ''].join('\n');
-          extractAllValues(snippetText, found);
+          // Only extract confirmation_code from snippets
+          if (!found.confirmation_code) {
+            const snippetText = [item.subject ?? '', item.snippet ?? ''].join('\n');
+            const code = extractConfirmationCode(snippetText);
+            if (code) {
+              console.log(`${LOG_PREFIX} Found confirmation_code from snippet: ${code}`);
+              found.confirmation_code = code;
+            }
+          }
 
           if (readMessageIds.has(item.messageID)) continue;
           readMessageIds.add(item.messageID);
