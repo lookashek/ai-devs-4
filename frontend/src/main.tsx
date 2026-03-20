@@ -11,6 +11,7 @@ import './lessons/S01E05.js';
 import './lessons/S02E01.js';
 import './lessons/S02E03.js';
 import './lessons/S02E04.js';
+import './lessons/S02E05.js';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element not found');
