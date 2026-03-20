@@ -8,8 +8,7 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
-    "@ai-devs-4/general": "*",
-    "zod": "^3.0.0"
+    "@ai-devs-4/general": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
